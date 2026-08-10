@@ -1659,7 +1659,12 @@ function toggleChallenge(challengeName) {
 }
 
 window.addEventListener('keydown', function (e) {
-    if (!e.ctrlKey && !e.shiftKey && !e.altKey) {
+    // metaKey matters as much as ctrlKey: without it Cmd+R fires rebirthSix() and Cmd+Q fires
+    // rebirthOne() on macOS - Cmd+R being the browser's own reload shortcut. The focus test matters
+    // for the same reason, since the Settings tab's save box is a text field the player types into.
+    const typing = e.target != null && (e.target.tagName == "INPUT" || e.target.tagName == "TEXTAREA")
+
+    if (!e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !typing) {
         if (e.key == " " && !e.repeat) {
             togglePause()
             if (e.target == document.body) {

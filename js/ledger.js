@@ -325,9 +325,13 @@ function updateInscribedTaskRecords() {
     }
 }
 
+// Deliberately NOT suspension-aware, unlike restoreInscribedMaxLevels below. Suspension exists to
+// stop an inscribed max level feeding getMaxLevelMultiplier's inverse under two challenges - it is
+// about the effect of task levels, not about whether the player still owns what they bought. A reset
+// performed while suspended would otherwise clear the latch with nothing to ever restore it, and
+// since the Ledger zeroes essence in the same breath, the milestone could not re-latch on its own
+// either: purchased permanence, permanently gone.
 function restoreInscribedMilestones() {
-    if (!areInscriptionsActive()) return
-
     for (const name of gameData.inscriptions.milestones) {
         const requirement = gameData.requirements[name]
         if (requirement !== undefined) requirement.completed = true

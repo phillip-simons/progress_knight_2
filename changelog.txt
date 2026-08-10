@@ -1,3 +1,12 @@
+version 3.0.1 / 10.08.2026
+* Fix pressing the Ledger while wearing the Dance with the Devil or Darkest Time sigil
+  permanently voiding every inscribed milestone
+* Fix the sigil loadout freezing when your slots shrink, which could leave the Darkest
+  Time sigil stuck on for good
+* Fix Cmd+R and Cmd+Q triggering a rebirth on Mac, and keybinds firing while typing in
+  the import/export box
+* An error during a rebirth now pauses autosaving instead of storing a half-finished reset
+
 version 3.0.0 / 10.08.2026
 * Added the sixth prestige layer: read the amulet to gain Etchings
 * Added the Ledger tab, with inscriptions and sigils

@@ -259,6 +259,22 @@ function doRebirth(layer) {
     if (spec.payoutGate !== undefined && !spec.payoutGate())            // 0
         return false
 
+    // Everything past the gates runs inside try/catch. doRebirth is reached from onClick, not from
+    // update(), so a throw here lands in window.onerror - which shows the banner but does NOT stop
+    // saveloop the way onTickError does. A half-executed cascade would then be committed to
+    // localStorage within three seconds, with no recovery path.
+    try {
+        return runRebirthPhases(layer, spec)
+    } catch (error) {
+        // The oracle harness loads this file without main.js, and there a swallowed throw would turn
+        // a real failure into a silent pass.
+        if (typeof onTickError != "function") throw error
+        onTickError(error)
+        return false
+    }
+}
+
+function runRebirthPhases(layer, spec) {
     gameData[spec.countKey] += 1                                        // 1
 
     applyGameDataPaths(spec.preGrantClears)                             // 2

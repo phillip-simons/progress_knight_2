@@ -134,8 +134,14 @@ function toggleSigil(name) {
     const bit = SIGIL_BITS[name]
     if (bit === undefined) return false
 
-    const next = (gameData.sigils & bit) ? (gameData.sigils & ~bit) : (gameData.sigils | bit)
-    if (countSigils(next) > getSigilSlots()) return false
+    const removing = (gameData.sigils & bit) != 0
+    const next = removing ? (gameData.sigils & ~bit) : (gameData.sigils | bit)
+
+    // Capacity constrains ADDING only. Slots collapse when the Etching-priced milestones that grant
+    // them un-latch - which is exactly what a Ledger does - so the worn count can legitimately exceed
+    // the slot count. Testing removals too would then refuse every toggle in both directions and
+    // freeze the loadout permanently; with the_darkest_time stuck on, that is an unrecoverable save.
+    if (!removing && countSigils(next) > getSigilSlots()) return false
 
     gameData.sigils = next
     return true
