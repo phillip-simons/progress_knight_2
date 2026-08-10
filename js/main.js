@@ -519,8 +519,33 @@ function goBankrupt() {
     autoBuyEnabled = true
 }
 
+// fetch() rejects outright on file:// URLs, so keep an XHR path around as a fallback:
+// some browsers still serve same-directory files that way when the game is opened from disk.
+function downloadFileXhr() {
+    return new Promise(function (resolve, reject) {
+        let request = new XMLHttpRequest();
+        request.open("GET", "./changelog.txt");
+        request.onload = function () {
+            // file:// responses report status 0 on success
+            if (request.status == 200 || (request.status == 0 && request.responseText))
+                resolve(request.responseText);
+            else
+                reject(new Error("Server Error"));
+        };
+        request.onerror = function () { reject(new Error("Network Error")); };
+        request.send();
+    });
+}
+
 async function downloadFile() {
-    let response = await fetch("./changelog.txt");
+    let response;
+
+    try {
+        response = await fetch("./changelog.txt");
+    }
+    catch (e) {
+        return await downloadFileXhr();
+    }
 
     if (response.status != 200) {
         throw new Error("Server Error");
@@ -533,12 +558,21 @@ async function downloadFile() {
 }
 
 document.querySelector("#changelogTabTabButton").addEventListener('click', async function () {
+    let element = document.querySelector("#changelog");
+
     try {
-        let text_data = await downloadFile();
-        document.querySelector("#changelog").textContent = text_data;
+        element.textContent = await downloadFile();
     }
     catch (e) {
-        alert(e.message);
+        // never alert() here: a modal dialog blocks the game loop
+        element.textContent = location.protocol == "file:"
+            ? "The changelog cannot be loaded when index.html is opened directly from disk (file://),\n"
+            + "because browsers refuse to read local files from a page.\n\n"
+            + "Serve the game folder over http instead, for example:\n\n"
+            + "    python3 -m http.server 8000\n\n"
+            + "and then open http://localhost:8000\n\n"
+            + "(changelog.txt sits next to index.html and can also just be opened in a text editor.)"
+            : "Could not load the changelog: " + e.message;
     }
 });
 

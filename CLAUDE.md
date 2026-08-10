@@ -19,6 +19,8 @@ Serve over HTTP rather than opening `index.html` via `file://`: the Changelog ta
 
 `test/rebirth-oracle.js` is dependency-free Node. It loads the game sources into a `vm` context with a stubbed DOM, keeps verbatim copies of the five original rebirth functions as an oracle, and diffs final state against the current `doRebirth()` across randomized worlds. Run it after touching `js/rebirth.js`. Note that top-level `const`/`class` declarations land in the context's global *lexical* scope and never become properties of the sandbox object — that is why the harness does its boot work inside the context and re-exports what it needs.
 
+`js/debug.js` is a dev-only panel toggled with the `` ` `` key: xp and game-speed multipliers, add-any-currency, and unlock/level shortcuts. **It must be removed for a release build** — delete the file and its one `<script>` tag in `index.html`, and that is the whole procedure. It installs its multipliers by wrapping `Task.prototype.getXpGain` / `getUnpausedGameSpeed` at load time and keeps its state outside `gameData`, so no game file references it and nothing it does reaches a save. Note it feeds `getUnpausedGameSpeed`, which challenge scoring reads, and best scores are permanent — test challenges on a throwaway save.
+
 Everything else is tested manually, in the browser. Useful facts when doing so:
 - Save lives in `localStorage["gameDataSave"]`; clear it to test a fresh game. Settings > Import/Export moves saves as base64-ish JSON blobs.
 - `gameData` and every function are globals, so the devtools console can drive the game directly (`gameData.essence = 1e60; update()`).
