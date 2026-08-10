@@ -175,6 +175,20 @@ function enterChallenge(challengeName) {
     gameData.rebirthOneTime = 0
     gameData.rebirthTwoTime = 0
 
+    // Dress Rehearsal (js/authorship.js): photograph the max levels the sweep below is about to
+    // destroy, so exitChallenge() can hand them back. Taken AFTER rebirthReset(), which promotes
+    // level into maxLevel, so what is kept is the peak the player actually had walking in.
+    //
+    // BARE hasAxiom, and it has to be: active_challenge is set above, before the teardown and
+    // deliberately so, which makes every suspension predicate in the game already false by the time
+    // this line runs. Routing it through a suspension-aware wrapper would make the Axiom a purchased
+    // no-op, and no post-state assertion could tell the difference.
+    //
+    // The scores are untouched by this. maxLevel is still 0 for the whole challenge - only the state
+    // after the exit changes - so getMaxLevelMultiplier() still returns 10 under
+    // dance_with_the_devil and setChallengeProgress() still measures the same run.
+    snapshotChallengeMaxLevels()
+
     for (const taskName in gameData.taskData) {
         const task = gameData.taskData[taskName]
         task.maxLevel = 0
@@ -193,9 +207,55 @@ function exitChallenge() {
         task.maxLevel = 0
     }
 
+    // After the sweep - it would otherwise zero what was just restored - and before
+    // restoreInscriptions(), which only ever raises a max level and so composes with it either way.
+    restoreChallengeMaxLevels()
+
     // active_challenge is clear and the sweeps are done, so the record can be written
     // back. This is where an inscribed max level is handed over after a challenge.
     restoreInscriptions()
+}
+
+// gameData.challenge_maxlevels is a PLAIN OBJECT keyed by task name, never an Array and never passed
+// to replaceSaveDict - its keys are content names, and that delete loop would erase every one of
+// them against the empty default. It is written at challenge entry and emptied at challenge exit, so
+// a save is only ever caught holding one mid-challenge.
+function snapshotChallengeMaxLevels() {
+    // Cleared BEFORE the ownership test, so a snapshot can only ever describe the challenge being
+    // entered right now. Returning early without clearing would strand the previous one: a rebirth
+    // pressed inside a challenge clears active_challenge at doRebirth phase 12 without ever going
+    // through exitChallenge(), so nothing empties the field, and because refunds are free the player
+    // can enter the next challenge unowned - not overwriting it - then re-buy mid-challenge and have
+    // exitChallenge() hand back a pre-rebirth set of peaks, including ones layer 7 deliberately
+    // zeroed. Mirrors restoreChallengeMaxLevels(), which already empties the field Axiom or no Axiom.
+    gameData.challenge_maxlevels = {}
+
+    if (!hasAxiom("dress_rehearsal")) return
+
+    const snapshot = {}
+    for (const taskName in gameData.taskData)
+        snapshot[taskName] = gameData.taskData[taskName].maxLevel
+
+    gameData.challenge_maxlevels = snapshot
+}
+
+// Tolerates a missing, null or hand-edited snapshot rather than throwing: this runs inside the tick,
+// and a throw here is a dead game loop rather than a bad number. Always empties the snapshot, Axiom
+// or no Axiom, so a refund can never leave a stale one to be applied to a later challenge.
+function restoreChallengeMaxLevels() {
+    const snapshot = gameData.challenge_maxlevels
+
+    if (hasAxiom("dress_rehearsal") && snapshot !== null && typeof snapshot === "object" && !Array.isArray(snapshot)) {
+        for (const taskName in snapshot) {
+            const task = gameData.taskData[taskName]
+            const recorded = snapshot[taskName]
+            if (task === undefined) continue
+            if (typeof recorded !== "number" || !isFinite(recorded) || recorded <= task.maxLevel) continue
+            task.maxLevel = recorded
+        }
+    }
+
+    gameData.challenge_maxlevels = {}
 }
 
 function setChallengeProgress() {

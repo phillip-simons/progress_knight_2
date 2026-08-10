@@ -35,20 +35,96 @@
        the last Ledger, and it is what W consults. Without it the optimal play is to un-inscribe
        everything one tick before pressing the button, bank full W, and re-inscribe for free.
        inscriptions.pledged is the same idea for the slot budget.
+
+    THE PLEDGE IS A PURCHASE GATE, NOT COLLATERAL. inscriptions.pledged decides whether the player
+    may buy the NEXT slot; it is never re-checked against the balance afterwards, and nothing in the
+    restore path may ever consult it. An Authorship zeroes etchings_log10 while every inscription
+    survives, so a player is routinely below their own standing pledge - and an affordability test
+    added to restoreInscriptions() or to updateInscribedTaskRecords() would silently confiscate the
+    permanence they already paid for, at the exact moment the layer above says it is safe.
 */
 
 // ---------------------------------------------------------------------------------------------
 // Balance constants.
 //
-// PROVISIONAL - see the contract's calibration gate. Every term must land strictly inside
-// (offset, offset + ETCHING_TERM_CAP) on a real endgame save, or it is either dead or pinned.
+// ESTIMATED, NOT MEASURED. No real endgame save exists, so these were derived by SYNTHETIC PROBE:
+// the game sources were loaded into a Node vm, a set of states consistent with having latched
+// "The End" was constructed by hand, and getEssenceGainLog10() / getDarkMatterGain() /
+// gameData.hypercubes were read back per factor. Nobody has played to this point. Treat every
+// number below as a first estimate to be re-derived against a real save, and read the two
+// constraints before changing any of them - both failure modes are total.
+//
+// CONSTRAINT 1 - an offset ABOVE its reachable value kills the term. If all three die at once,
+// getEtchingGainLog10()'s "no input, no payout" guard returns LOG_ZERO forever, doRebirth(6)'s
+// payoutGate never passes, and layers 6 and 7 are unreachable content. Err LOW.
+//
+// CONSTRAINT 2 - an offset BELOW the residual left one tick AFTER a Ledger opens a repeat-click
+// faucet: the guard stops firing and W + S + tP + the Marginal bonus (~11 log10) mint on every
+// press. So each offset must sit strictly ABOVE its own post-Ledger residual. The probe modelled
+// the worst case (Palimpsest keeping the dark-matter skill tree, Recto and Verso seeding 1e12
+// hypercubes, a maximal dance_with_the_devil best that survives because layer 6 has no
+// challengeWipe) and measured: e <= 34, d <= 7, h = 12.
+//
+// What the probe read at the press, over five routings of a Ledger-capable save (essence-heavy,
+// dark-matter-heavy, balanced, several Ledgers in, deep endgame):
+//
+//     e = log10 of the retained ten essence factors   46 .. 83
+//     d = log10(getDarkMatterGain())                 104 .. 243
+//     h = log10(gameData.hypercubes)                  30 .. 260
+//
+// e is the term with a real floor. Faint Hope alone pins 10.0 once "A New Hope" latches, The new
+// gold 3.0, the dark-matter skill tree 13.4, and the two hero essence Skills a few more each, so
+// e never came in under 46 in any consistent state and never exceeded 83 (every retained factor is
+// either linear in level, hard-softcapped, or a flat milestone). 40 sits below that floor and 6
+// above the post-Ledger residual, so tE runs 1.3 -> 6.2 across the whole band: live, not pinned.
+//
+// d and h have no such floor - they trade off against each other, because essence only reaches
+// 1e300 if e + log10(dark_matter) + metaverse.essence_gain_modifier >= ~297, and the modifier is
+// bought with hypercubes at 1e9 * 10^n. That identity is also why the joint failure is hard to
+// reach: e <= 40 and d <= 95 and h <= 60 together bound essence gain at ~1e191, which cannot have
+// latched "The End" in the first place. It is an argument about PEAK hypercubes though - a player
+// who spends down to nothing right before pressing weakens it - which is the reason H sits far
+// below the observed band rather than inside it. A tH refusal then lasts only as long as it takes
+// hypercubes to regenerate, instead of forever.
+//
+// ETCHING_H_OFFSET has no correct value in the way the other two do: with getHypercubeCap() at
+// Infinity, hypercube accumulation is linear in AFK time, so any offset is really a session-length
+// target. 60 targets a save that has banked ~1e60 hypercubes at least once - roughly the point at
+// which the metaverse shop's own ladder (dark_mater_gain_modifer at 1e19 * 10^n) has been climbed
+// for a while - and it clears the 1e12 Recto and Verso seed by 48 orders.
+//
+// Deliberately NOT touched here: ETCHING_P_SCALE. getTotalPerkPoints() came back at 39k-5M in the
+// probe, so tP runs 0.18 -> 1.11, which is inside its intended band.
 // ---------------------------------------------------------------------------------------------
 
-const ETCHING_E_OFFSET = 71
-const ETCHING_D_OFFSET = 105
-const ETCHING_H_OFFSET = 94
+const ETCHING_E_OFFSET = 40
+const ETCHING_D_OFFSET = 95
+const ETCHING_H_OFFSET = 60
 const ETCHING_P_SCALE = 30000
 const ETCHING_TERM_CAP = 30
+
+// ---------------------------------------------------------------------------------------------
+// The door.
+//
+// The layer is normally behind "The End", the 1e300-essence milestone that ends the game below it.
+// The Book Reopens Axiom (js/authorship.js) is a second key to the same door at a far lower essence
+// price, and to the four requirement thresholds that hide the layer's controls - those four are
+// rewritten by applyAxioms() (js/main.js), which reads both constants below.
+//
+// LEDGER_SEALED_ESSENCE is taken BY REFERENCE from the milestone, never written out again, the same
+// way AXIOM_BASE_LOG10 is the price of First Draft. js/milestones.js loads before this file.
+//
+// The Axiom does NOT lower the milestone itself. "The End" carries its own latch effects, and this
+// gate is the only one of them the layer above is allowed to buy.
+// ---------------------------------------------------------------------------------------------
+
+const LEDGER_SEALED_ESSENCE = milestoneBaseData["The End"].expense
+const LEDGER_REOPENED_ESSENCE = 1e60
+
+function isLedgerUnlocked() {
+    if (gameData.requirements["The End"].isCompleted()) return true
+    return hasAxiom("the_book_reopens") && gameData.essence >= LEDGER_REOPENED_ESSENCE
+}
 
 // ---------------------------------------------------------------------------------------------
 // The gain.
@@ -57,7 +133,10 @@ const ETCHING_TERM_CAP = 30
 // Never reads banked essence: gameData.essence is pinned at its 1e308 clamp for anyone who reaches
 // this layer, so log10(essence) carries zero information. It reads the unclamped gain chain instead.
 function getEtchingGainLog10() {
-    if (!gameData.requirements["The End"].isCompleted()) return LOG_ZERO
+    // Opening this door early does NOT open the faucet: the "no input, no payout" guard below is
+    // untouched, so a player who walks in at 1e60 essence still earns nothing until the gain chains
+    // themselves clear ETCHING_E/D/H_OFFSET.
+    if (!isLedgerUnlocked()) return LOG_ZERO
 
     const e = getEssenceGainLog10()
     const d = Math.log10(Math.max(1, getDarkMatterGain()))
@@ -370,11 +449,17 @@ function restoreInscriptions() {
 //
 // Domain is ESSENCE_MILESTONE_NAMES - derived by currency in js/milestones.js - so an Etching-priced
 // tier can never enter W and the layer can never pay for itself. Max value is 42, i.e. W <= 2.10.
+//
+// The Unlevied Axiom (js/authorship.js) removes the tax, not the cap: with it every completed
+// essence milestone counts whether it is inscribed or not, so the term returns to a value the
+// formula already reaches when nothing is inscribed at all. It removes a choice-cost and cannot
+// raise the ceiling, which is why it passes the faucet rule in js/authorship.js's header.
 function countUninscribedMilestonesCompleted() {
+    const levied = !hasAxiom("unlevied")
     let count = 0
 
     for (const name of ESSENCE_MILESTONE_NAMES) {
-        if (gameData.inscriptions.taxed.includes(name)) continue
+        if (levied && gameData.inscriptions.taxed.includes(name)) continue
         const requirement = gameData.requirements[name]
         if (requirement !== undefined && requirement.isCompleted()) count++
     }

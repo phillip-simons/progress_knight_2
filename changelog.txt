@@ -1,3 +1,19 @@
+version 3.1.0 / 10.08.2026
+* Added the seventh prestige layer: close the eye to gain Axioms
+* Added the Authorship tab. An Axiom rewrites one rule of the game rather than raising a number
+* Seven Axioms: keep your peak when you become a hero, four hours of offline progress instead of
+  one, stop the amulet taxing what it records, unlock heroes from the milestone track, keep your
+  max levels through a challenge, reopen the Ledger far below its first price, and stop rebirths
+  one through six taking your max levels back
+* Inscriptions survive an Authorship, as promised when you bought them
+* Taking an Axiom back returns all but one of its cost
+* Recalibrated Etching gain. The offsets are estimated, not measured against a real endgame save,
+  and a first Ledger now pays considerably more than before
+* Inscribed max levels are now restored every tick instead of only after a rebirth, so wearing a
+  sigil no longer suspends them for a whole cycle
+* The Dance with the Devil and Darkest Time max-level penalty is now floored at 100x. This affects
+  existing saves even with no Axioms owned
+
 version 3.0.1 / 10.08.2026
 * Fix pressing the Ledger while wearing the Dance with the Devil or Darkest Time sigil
   permanently voiding every inscribed milestone

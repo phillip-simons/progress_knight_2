@@ -726,6 +726,7 @@ function increaseRealtime() {
     gameData.rebirthFourTime += realDiff
     gameData.rebirthFiveTime += realDiff
     gameData.rebirthSixTime += realDiff
+    gameData.rebirthSevenTime += realDiff
 
     if (gameData.boost_active) {
         gameData.boost_timer -= realDiff
@@ -855,18 +856,49 @@ function canSimulate() {
     return !gameData.paused && isAlive()
 }
 
+// The milestone Born Heroic (js/authorship.js) unlocks heroes from, instead of One Above All level
+// 2000. Its safety argument is that this is the MOST EXPENSIVE essence milestone the heroic xp stack
+// reads, and that argument is asserted in assertContentTableIntegrity() rather than left as a
+// comment - a new heroic-xp milestone priced above it would silently re-open the brick.
+const BORN_HEROIC_GATE = "Superb Heroes"
+
 function isHeroesUnlocked() {
-    return gameData.requirements["New Beginning"].isCompleted() && (gameData.taskData["One Above All"].level >= 2000 || gameData.taskData["One Above All"].isHero)
+    // "New Beginning" stays a hard prerequisite in both branches: it is the milestone that unlocks
+    // great heroes, skills and items at all, and it is free to keep - it costs 5e6 essence against
+    // BORN_HEROIC_GATE's 1e10, so a latched Born Heroic gate implies it.
+    if (!gameData.requirements["New Beginning"].isCompleted()) return false
+
+    // Born Heroic replaces the One Above All clause, and only that clause. Gating on ESSENCE is what
+    // makes it safe: an Authorship zeroes essence and un-latches every heroic xp multiplier with it,
+    // so on the fresh life that would otherwise brick - Heroic Beggar facing a 5e37 maxXp with a ~1x
+    // multiplier stack - the Axiom is automatically inert.
+    //
+    // isCompletedActual(), NOT isCompleted(): the latch is deliberately bypassed here. BORN_HEROIC_GATE
+    // is in INSCRIBABLE_MILESTONES, restoreInscribedMilestones() (js/ledger.js) sets completed = true
+    // unconditionally, and doRebirth phase 13 calls it - so a player who inscribed it walks out of an
+    // Authorship with essence 0 and the latch back on. Reading the latch would make the Axiom live in
+    // exactly the state the safety argument above says it cannot be, and makeHero() is one-way.
+    if (hasAxiom("born_heroic") && gameData.requirements[BORN_HEROIC_GATE].isCompletedActual())
+        return true
+
+    return gameData.taskData["One Above All"].level >= 2000 || gameData.taskData["One Above All"].isHero
 }
 
 function makeHero(task) {
     if ((task instanceof Job || task instanceof Skill) && !task.isHero) {
+        // The Same Hand (js/authorship.js): heroification stops costing the player their peak. Read
+        // here, BEFORE task.level is zeroed on the next line, and through the BARE hasAxiom - a
+        // suspension-aware predicate would DESTROY the peak while suspended rather than merely
+        // decline to restore one, which is the opposite of what suspension does for an inscription.
+        const keptPeak = hasAxiom("the_same_hand") ? Math.max(task.maxLevel, task.level) : 0
+
         task.level = 0
-        task.maxLevel = 0
+        task.maxLevel = keptPeak
         task.xp = 0
         task.isHero = true
 
-        // maxLevel was just zeroed, and the heroic record is a different scale from the normal one.
+        // maxLevel was just rewritten, and the heroic record is a different scale from the normal
+        // one. Only ever raises, so it cannot undo the line above.
         restoreInscribedMaxLevels()
     }
 }
@@ -1118,6 +1150,8 @@ function loadGameData() {
                 gameData.rebirthFiveTime = 0
             if (gameData.rebirthSixTime == null || isNaN(gameData.rebirthSixTime))
                 gameData.rebirthSixTime = 0
+            if (gameData.rebirthSevenTime == null || isNaN(gameData.rebirthSevenTime))
+                gameData.rebirthSevenTime = 0
 
             if (gameData.settings.theme == null) {
                 gameData.settings.theme = 1
@@ -1153,6 +1187,8 @@ function loadGameData() {
     assignMethods()
 
     normalizeInscriptions()
+
+    normalizeAxioms()
 }
 
 var intervalID = 0;
@@ -1161,12 +1197,25 @@ var executedTimes = 0;
 var in_offline_progress=false;
 var lastUpdate = 0;
 
+// The Long Hour (js/authorship.js). Bounded on purpose, and this is the one true call site: offline
+// catch-up replays real update() ticks, so its cost is linear in wall clock - four hours is 288,000
+// of them through runOfflineBatch's 16 ms frame budget. Uncapped offline is a different project (it
+// needs a reduced-fidelity replay mode) and is not what the Axiom buys. If a four-hour catch-up
+// measures worse than ~2 minutes on a mid-range machine, drop THE_LONG_HOUR_MAX_TIME_MS to two hours
+// rather than reaching for the batcher.
+const OFFLINE_MAX_TIME_MS = 3600 * 1000
+const THE_LONG_HOUR_MAX_TIME_MS = 4 * 3600 * 1000
+
+function getOfflineMaxTimeMs() {
+    return hasAxiom("the_long_hour") ? THE_LONG_HOUR_MAX_TIME_MS : OFFLINE_MAX_TIME_MS
+}
+
 function calc_offline_progress(ms){
     if (ms > 10000){
         in_offline_progress = true
         intervalID = 0
         executedTimes = 0
-        var offline_max_time = 3600 * 1000 // 1 hour
+        var offline_max_time = getOfflineMaxTimeMs()
         if (ms > offline_max_time)
             ms = offline_max_time
         totalTimes = Math.floor(ms / (1000 / updateSpeed))
@@ -1240,13 +1289,30 @@ function update(needUpdateUI = true) {
         gameData.hypercube_cap_unlocked = true
     if (gameData.hypercubes > getHypercubeCap())
         gameData.hypercubes = getHypercubeCap()
+    // The cap is Infinity for anyone past the metaverse, so the clamp above does not bind.
+    // Insurance, matching the guard commit 59fbfd8 put on evil and essence: at Infinity
+    // getEtchingGainLog10()'s isFinite(h) bail returns LOG_ZERO forever and the Ledger is dead,
+    // and Infinity serializes to null, so the damage would be permanent rather than transient.
+    if (gameData.hypercubes > 1e308)
+        gameData.hypercubes = 1e308
 
     updateSigilService()
     updateInscribedTaskRecords()
+    // The write-back half of the same pair. restoreInscribedMilestones() is deliberately NOT
+    // called here: it is unsuspendable, so a per-tick call would hand every inscribed essence
+    // milestone back one tick into a challenge, which enterChallenge() has just torn down on
+    // purpose - and challenge best scores are permanent and feed the essence and dark-matter
+    // chains. The max-level half is suspension-aware, so it no-ops inside a challenge and
+    // under the two sigils, and only fires once the suspension lifts. Without it, a teardown
+    // performed while a dance_with_the_devil or the_darkest_time sigil is worn leaves every
+    // inscribed task at maxLevel 0 for the whole cycle: restoreInscriptions() runs only at
+    // teardowns, so removing the sigil afterwards restored nothing.
+    restoreInscribedMaxLevels()
 
     applyMilestones()
     applyEvilPerks()
     applyPerks()
+    applyAxioms()
     updateStats()
     if (needUpdateUI && !document.hidden)
         updateUI()
@@ -1270,6 +1336,29 @@ function applyPerks() {
     if (gameData.perks.instant_dark_matter == 1) {
         if (gameData.dark_matter < getDarkMatterGain() * 10)
             gameData.dark_matter = getDarkMatterGain() * 10
+    }
+}
+
+// The Book Reopens (js/authorship.js): the four essence doors that guard the Ledger drop from the
+// price of "The End" to LEDGER_REOPENED_ESSENCE. Same mechanism applyEvilPerks() below already uses
+// for sixteen thresholds - a per-tick rewrite of requirement.requirements[0].requirement - which
+// also means the four literals in js/data.js are defaults that this function overwrites on the first
+// tick. Both directions are written, so refunding the Axiom puts the price back; a latch already
+// granted does not fall here, because requirement.completed is cleared by rebirthReset(), never by
+// raising the threshold under it.
+//
+// getEtchingGainLog10()'s own "The End" gate is the fifth door and is deliberately NOT rewritten
+// from here: it reads a milestone whose latch carries its own game effects, so lowering its price
+// would hand those out too. It routes through isLedgerUnlocked() (js/ledger.js) instead.
+const LEDGER_ESSENCE_GATES = ["Rebirth button 6", "Rebirth note 9", "Sigils", "key6"]
+
+function applyAxioms() {
+    const gate = hasAxiom("the_book_reopens") ? LEDGER_REOPENED_ESSENCE : LEDGER_SEALED_ESSENCE
+
+    for (const key of LEDGER_ESSENCE_GATES) {
+        const requirement = gameData.requirements[key]
+        if (requirement !== undefined)
+            requirement.requirements[0].requirement = gate
     }
 }
 
@@ -1474,6 +1563,37 @@ function assertContentTableIntegrity() {
     check(skillBaseData, skillSeen, "skill", true)
     check(itemBaseData, itemSeen, "item", true)
     check(milestoneBaseData, milestoneSeen, "milestone", true)
+
+    // Born Heroic's load-bearing invariant: BORN_HEROIC_GATE must be the most expensive essence
+    // milestone getHeroXpGainMultipliers() reads, so that latching it implies the whole heroic xp
+    // stack. Add a heroic-xp milestone above it and Born Heroic unlocks heroes into a ~1x multiplier
+    // stack that Heroic Beggar's 5e37 maxXp never clears - a save that looks healthy and can never
+    // progress again.
+    //
+    // The name list is read out of the function itself rather than kept beside it, because the
+    // hazard is precisely someone adding a line to that function and not knowing this list exists.
+    const heroXpNames = []
+    const heroXpPattern = /requirements\[\s*"([^"]+)"\s*\]/g
+    let heroXpMatch
+    while ((heroXpMatch = heroXpPattern.exec(getHeroXpGainMultipliers.toString())) !== null)
+        heroXpNames.push(heroXpMatch[1])
+
+    if (heroXpNames.length < 2) {
+        console.error("integrity: could not read the milestone list out of getHeroXpGainMultipliers - Born Heroic's gate is unchecked")
+    } else if (!heroXpNames.includes(BORN_HEROIC_GATE)) {
+        console.error("integrity: " + BORN_HEROIC_GATE + " is not read by getHeroXpGainMultipliers, so it cannot gate Born Heroic")
+    } else {
+        const gateExpense = milestoneBaseData[BORN_HEROIC_GATE].expense
+        for (const name of heroXpNames) {
+            const milestone = milestoneBaseData[name]
+            if (milestone === undefined || typeof milestone.expense !== "number") {
+                console.error("integrity: heroic xp milestone has no essence price: " + name)
+                continue
+            }
+            if (milestone.expense > gateExpense)
+                console.error("integrity: heroic xp milestone " + name + " costs more essence than " + BORN_HEROIC_GATE + " - Born Heroic would unlock heroes without it")
+        }
+    }
 
     for (const layer in REBIRTH_LAYERS) {
         const spec = REBIRTH_LAYERS[layer]

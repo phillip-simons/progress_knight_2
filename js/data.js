@@ -69,6 +69,21 @@
         pledged: 0,
     },
 
+    // Layer 7 - Authorship.
+    // Two top-level scalars, so replaceSaveDict(gameData, save) backfills both for free. The same
+    // argument the sigil masks make above: a nested dict would need its own replaceSaveDict call, a
+    // shape guard and a normalizer, and a bitmask needs none of them.
+    //   axioms       - unspent balance, a plain non-negative integer
+    //   axioms_owned - bitmask over AXIOM_BITS (js/authorship.js); the bit IS the catalogue index
+    axioms: 0,
+    axioms_owned: 0,
+
+    // Dress Rehearsal's max-level snapshot, taken at challenge entry and consumed at challenge exit.
+    // A PLAIN OBJECT keyed by task name, never an Array (JSON.stringify drops string-keyed
+    // properties of an Array) and never passed to replaceSaveDict (whose delete loop would erase
+    // every entry against the empty default). Written only by js/challenges.js.
+    challenge_maxlevels: {},
+
     paused: false,
     timeWarpingEnabled: true,
 
@@ -84,6 +99,8 @@
     rebirthFiveTime: 0,
     rebirthSixCount: 0,
     rebirthSixTime: 0,
+    rebirthSevenCount: 0,
+    rebirthSevenTime: 0,
 
     currentJob: null,
     currentProperty: null,
@@ -107,6 +124,9 @@
         fastest4: null,
         fastest5: null,
         fastest6: null,
+        // Mandatory, like every fastestN above it: doRebirth's write guard is `== null`, which is
+        // also true for undefined, so a missing default makes "fastest" mean "most recent" forever.
+        fastest7: null,
         fastestGame: null,
         EvilPerSecond: 0,
         maxEvilPerSecond: 0,
@@ -117,7 +137,13 @@
         maxEssenceReached: 0,
         sigilsEverUsed: 0,
         totalEtchingsEarnedLog10: LOG_ZERO,
+        // Not reset by an Authorship: it is the key that reveals a Marginal Milestone's description,
+        // so zeroing it would flip content the player has already read back to "Unknown".
         maxEtchingsReachedLog10: LOG_ZERO,
+        // Lifetime Axioms earned, across Authorships. Display only.
+        totalAxiomsEarned: 0,
+        // "Put it down." - a timestamp in ms, never a Date. Written once, only while null.
+        putDownDate: null,
     },
     active_challenge: "",
     challenges: {
@@ -187,7 +213,18 @@ function getHeroIncomeMult() { return heroIncomeMult }
 // "Milestones" is a bugfix: its tab button is gated by an EssenceRequirement at 1 and was on neither
 // exemption list, so a Ledger (which zeroes essence) would hide the tab showing the Marginal track.
 // "Sigils" is gated at 1e300 essence and would likewise vanish after every Ledger.
-const permanentUnlocks = ["Quick task display", "Evil perks", "Rebirth tab", "Milestones", "Dark Matter", "Dark Matter Skills", "Dark Matter Skills2", "Metaverse", "Metaverse Perks", "Metaverse Perks Button", "Congratulations", "Sigils"]
+//
+// The same bug, one layer up. An Authorship zeroes etchings_log10, so "Ledger" (an EtchingRequirement
+// at 0) un-latches and the tab holding #inscriptionsLayout and #sigilPanel disappears - taking with
+// it the only control for the inscriptions that deliberately survived, while "Sigils" being
+// permanent keeps canChangeSigils() answering true for a panel nobody can see. "Authorship" and
+// "Axioms info" latch at the price of the first Axiom and must not vanish at the moment the layer
+// zeroes the currency that paid for them.
+//
+// Deliberately NOT here: "Marginal Milestones" and the 15 Marginal keys (the track is SUPPOSED to
+// revoke - that is the layer's cost), "Etchings info" (hand-un-latched in renderSideBar), and
+// "Rebirth button 7" / "Rebirth note 10" / "key7", which should re-lock like every other layer's.
+const permanentUnlocks = ["Quick task display", "Evil perks", "Rebirth tab", "Milestones", "Dark Matter", "Dark Matter Skills", "Dark Matter Skills2", "Metaverse", "Metaverse Perks", "Metaverse Perks Button", "Congratulations", "Sigils", "Ledger", "Authorship", "Axioms info"]
 const metaverseUnlocks = ["Reduce Boost Cooldown", "Increase Boost Duration", "Increase Hypercube Gain", "Gain evil at new transcension",
     "Essence gain multiplier", "Challenges are not reset", "Dark Matter gain multiplier"]
 
@@ -389,6 +426,9 @@ const requirementsBaseData = {
     "Rebirth note 7": new EssenceRequirement(["#rebirthNote7"], [{ requirement: 5e10 }]),
     "Rebirth note 8": new EssenceRequirement(["#rebirthNote8"], [{ requirement: 1e60 }]),
     "Rebirth note 9": new EssenceRequirement(["#rebirthNote9"], [{ requirement: 1e300 }]),
+    // Priced in Etchings at AXIOM_BASE_LOG10 (js/authorship.js), which reads the "First Draft"
+    // Marginal Milestone by reference. Never write 11.4 here.
+    "Rebirth note 10": new EtchingRequirement(["#rebirthNote10"], [{ requirement_log10: AXIOM_BASE_LOG10 }]),
 
     "Rebirth button 1": new AgeRequirement(["#rebirthButton1"], [{ requirement: 65 }]),
     "Rebirth button 2": new AgeRequirement(["#rebirthButton2"], [{ requirement: 200 }]),
@@ -396,6 +436,7 @@ const requirementsBaseData = {
     "Rebirth button 4": new EssenceRequirement(["#rebirthButton4"], [{ requirement: 5e10 }]),
     "Rebirth button 5": new EssenceRequirement(["#rebirthButton5"], [{ requirement: 1e60 }]),
     "Rebirth button 6": new EssenceRequirement(["#rebirthButton6"], [{ requirement: 1e300 }]),
+    "Rebirth button 7": new EtchingRequirement(["#rebirthButton7"], [{ requirement_log10: AXIOM_BASE_LOG10 }]),
 
     "Rebirth stats evil": new AgeRequirement(["#statsEvilGain"], [{ requirement: 200 }]),
     "Rebirth stats essence": new TaskRequirement(["#statsEssenceGain"], [{ task: "Cosmic Recollection", requirement: 1 }]),
@@ -408,6 +449,7 @@ const requirementsBaseData = {
     "Dark Orbs info": new DarkOrbsRequirement(["#darkOrbsInfo"], [{ requirement: 1 }]),
     "Hypercubes info": new HypercubeRequirement(["#hypercubesInfo"], [{ requirement: 1 }]),
     "Etchings info": new EtchingRequirement(["#etchingsInfo"], [{ requirement_log10: 0 }]),
+    "Axioms info": new EtchingRequirement(["#axiomsInfo"], [{ requirement_log10: AXIOM_BASE_LOG10 }]),
 
     // Common work
     "Beggar": new TaskRequirement([getQuerySelector("Beggar")], []),
@@ -627,6 +669,11 @@ const requirementsBaseData = {
     "Ledger": new EtchingRequirement(["#ledgerTabButton"], [{ requirement_log10: 0 }]),
     "Sigils": new EssenceRequirement(["#sigilPanel"], [{ requirement: 1e300 }]),
 
+    // Authorship
+    // Gates the tab BUTTON only, for the same reason as "Ledger" above. Both this and "Axioms info"
+    // are in permanentUnlocks: an Authorship zeroes the very currency that priced them.
+    "Authorship": new EtchingRequirement(["#authorshipTabButton"], [{ requirement_log10: AXIOM_BASE_LOG10 }]),
+
     // ShortKeyInfo
     "keyChallenge": new EvilRequirement(["#keyChallenge"], [{ requirement: 10000 }]),
     "key1": new AgeRequirement(["#key1"], [{ requirement: 65 }]),
@@ -635,6 +682,9 @@ const requirementsBaseData = {
     "key4": new EssenceRequirement(["#key4"], [{ requirement: 5e10 }]),
     "key5": new EssenceRequirement(["#key5"], [{ requirement: 1e60 }]),
     "key6": new EssenceRequirement(["#key6"], [{ requirement: 1e300 }]),
+    // No layer-7 keybind ships in this release; the row exists so the shortcut list can carry the
+    // layer when one is chosen. See the keydown guard in js/ui.js before adding a letter.
+    "key7": new EtchingRequirement(["#key7"], [{ requirement_log10: AXIOM_BASE_LOG10 }]),
 
     // Evil perks
     "Evil perk essence": new EssenceRequirement(["#evilperk5"], [{ requirement: 150000000 }]),

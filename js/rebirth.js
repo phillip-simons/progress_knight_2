@@ -10,9 +10,12 @@
     constraint that pins it there.
 
      0  payout gate     - optional per-layer predicate, checked BEFORE the counter increment.
-                          Layer 6 only. A Ledger with no gain would still run the full wipe, and the
-                          view-level guard covers only one of the three entry points (sidebar button,
-                          rebirth note button, `r` keybind).
+                          Layers 6 and 7. A Ledger with no gain would still run the full wipe, and
+                          the view-level guard covers only one of the three entry points (sidebar
+                          button, rebirth note button, `r` keybind). Layer 7 additionally carries the
+                          variety clauses of its gate here, because neither "four different sigils
+                          served" nor "something inscribed" is expressible as a Requirement
+                          threshold.
      1  count           - the layer's own counter.
      2  pre-grant clears - layer 4 only, which zeroes essence/evil *before* computing its grant.
      3  grants          - MUST precede the general clears. getDarkMatterGain() reads a challenge bonus
@@ -25,23 +28,36 @@
                           it is a separate change with its own release note.
      5  clears          - MUST precede rebirthReset(), which reads dark_matter_shop.a_miracle to
                           re-grant Magic Eye and reads the currencies for its tab-retention test.
-                          Layers 5 and 6 share the same teardown via resetMetaverse(); it runs last
-                          within the phase, after the table's own clears.
+                          Layers 5, 6 and 7 share the same teardown via resetMetaverse(); it runs
+                          last within the phase, after the table's own clears. Layer 7 has two more
+                          constraints of the same class: etchings_log10 must be zeroed here or the
+                          Marginal Milestones un-latched at phase 10 all re-latch on the next tick,
+                          and the sigil masks must be cleared here because rebirthReset()'s preserve
+                          loop reads gameData.sigils transitively, through isInscribedMilestone ->
+                          areInscriptionsActive -> isChallengeActive.
      6  challenge wipe  - two different predicates: layer 4 is spared by challenge_altar OR
                           save_challenges, layer 5 only by save_challenges.
      7  revokes         - MUST precede rebirthReset()'s preserve-loop, because the three Dark Matter
                           keys layer 5 revokes are themselves in permanentUnlocks.
      8  stat, then timers - the fastestN stat reads its timer before phase 9 zeroes it.
-     9  maxLevel BEFORE - layer 3 only. Reads pre-reset task.level and *overwrites* maxLevel.
+     9  maxLevel BEFORE - layer 3 only. Reads pre-reset task.level and *overwrites* maxLevel. The
+                          Nothing Is Unlearned Axiom makes that overwrite a Math.max, for layers
+                          1-6 only - see keepsMaxLevelsThroughRebirth().
     10  rebirthReset()  - shared teardown. Promotes level into maxLevel.
-    11  maxLevel AFTER  - layers 2/4/5/6. Exists purely to undo that promotion. Layer 1 does neither
-                          and inherits it, which is what makes layer 1 a "keep" rather than a "zero".
+    11  maxLevel AFTER  - layers 2/4/5/6/7. Exists purely to undo that promotion. Layer 1 does
+                          neither and inherits it, which is what makes layer 1 a "keep" rather than
+                          a "zero". The same Axiom skips this phase for layers 1-6, which is why
+                          layer 7 keeping its "zero" is what makes an Authorship cost anything.
     12  active_challenge - last: getChallengeBonus and the dark matter ability effects all branch on
                           it. Layer 1 never clears it at all.
-    13  inscriptions    - MUST be last. Writes back the Layer 6 record (milestone latches, task max
-                          levels) and then balances the W / pledge books. No-op while
-                          active_challenge is set, so it has to run after phase 12; and after phase
-                          11, or the restored max levels are re-zeroed.
+    13  inscriptions    - writes back the Layer 6 record (milestone latches, task max levels). The
+                          max-level half is suspended while active_challenge is set, so it has to
+                          run after phase 12; and after phase 11, or what it restores is re-zeroed.
+                          Layer 7 does NOT wipe gameData.inscriptions - an inscription surviving
+                          every reset is shipped copy, not a purchase - so this is what carries the
+                          player's Layer 6 record into the next book.
+    14  reconcile       - MUST be last, and only for a layer that has already destroyed the value of
+                          the ratchets it releases. Balances the W / pledge books.
 
     maxLevel is therefore a pipeline *position*, not a value: keep / recall (before) / zero (after).
     No table field can say "runs on the other side of the rebirthReset call".
@@ -227,6 +243,77 @@ const REBIRTH_LAYERS = {
         // be a maxLevel wipe wearing a rescale's clothes.
         maxLevel: "zero",
         clearActiveChallenge: true,
+        reconcileInscriptions: true,
+    },
+
+    /*
+        Layer 7 - Authorship. Grants Axioms, revokes the entire Marginal track, and retires the
+        Ledger economy into the next book.
+
+        What it KEEPS, deliberately, is layer 6's row comment applied transitively: perks_points and
+        the whole perks dict, gameData.challenges, hypercube_cap_unlocked, every rebirthNCount and
+        all of gameData.stats. Each of those multiplies the essence and dark-matter chains that
+        getEtchingGainLog10() reads, so wiping them would make each Authorship pay less than the one
+        before. The counters are a hard requirement rather than a preference: getHypercubeCap() reads
+        rebirthFiveCount and isSigilGraceActive() reads rebirthSixCount.
+
+        INSCRIPTIONS SURVIVE UNCONDITIONALLY. That is shipped player-facing copy ("An inscription
+        survives every reset from here on"), not a purchase, and it costs zero code here:
+        rebirthReset()'s preserve loop already exempts isInscribedMilestone(key) and phase 13 already
+        calls restoreInscriptions(). gameData.inscriptions is untouched by this row.
+
+        THE MARGINAL TRACK REVOKES FOR FREE, but only because etchings_log10 is zeroed at phase 5.
+        rebirthReset() un-latches all 15 at phase 10 and the next isCompleted() is one tick later; at
+        a positive balance every one of them re-latches and the player permanently keeps +7.5 log10
+        of gain, 6 inscription slots, 3 sigil slots, the hypercube seed and Palimpsest.
+
+        "The Margin" job category needs no work here. Both its header and Errata Prima are
+        EssenceRequirements at 1e300, so zeroing essence hides it and re-climbing restores it,
+        exactly as on every Ledger.
+    */
+    7: {
+        gate: "Rebirth button 7",
+        // Position 0. Reads the Etching balance, the pending Ledger gain, the sigil history and the
+        // inscription counts - every one of which this row is about to destroy. isAuthorshipReady()
+        // is the single source for both this and the tab's per-clause display.
+        payoutGate: () => isAuthorshipReady(),
+        countKey: "rebirthSevenCount",
+        statKey: "fastest7",
+        timerKey: "rebirthSevenTime",
+        // All SEVEN, and rebirthSixTime is the load-bearing one. isSigilGraceActive() is
+        // `rebirthSixCount == 0 || rebirthSixTime <= 300`, and layer 7 keeps rebirthSixCount - so
+        // leaving that timer set closes the grace window from the first tick, updateSigilService()
+        // ORs every bit into sigils_broken, and the first Ledger after every Authorship pays S = 0
+        // whatever the player wears, invisibly.
+        timersCleared: ["rebirthOneTime", "rebirthTwoTime", "rebirthThreeTime", "rebirthFourTime", "rebirthFiveTime", "rebirthSixTime", "rebirthSevenTime"],
+        // Position 3, and it has to be: getAxiomGain() reads gameData.etchings_log10 and the pending
+        // getEtchingGainLog10(), and phase 5 below zeroes the first and every input to the second.
+        grant: () => { grantAxioms(getAxiomGain()) },
+        // Matches layers 4/5/6 rather than the guarded form, for the reason written on layer 6.
+        evilPerks: "inline",
+        clears: {
+            // Position 5, before rebirthReset(). See the header's phase 5 note - both entries here
+            // are ordering constraints, not preferences.
+            "etchings_log10": LOG_ZERO,
+            "sigils": 0,
+            "sigils_broken": 0,
+            // Without this, getSigilValue() prices the whole first post-Authorship loadout at
+            // SIGIL_WEIGHT_REPEAT instead of SIGIL_WEIGHT_FRESH - a silent 3x cut to S for a cycle.
+            "last_sigils": 0,
+        },
+        // resetMetaverse(7) is correct unchanged: both of its layer-6 special cases are guarded on
+        // `layer === 6` and both come from Marginal Milestones this row is revoking. Do NOT widen
+        // those guards to >= 6.
+        resetMetaverse: true,
+        // No challengeWipe, matching layer 6. The best scores multiply the gain chains the Etching
+        // formula reads.
+        revokes: DARK_MATTER_UNLOCKS,
+        // Position 11, same reason as layer 6. Rebuilding max levels is the only expensive part of
+        // the re-climb, so an Authorship that kept them would be an Authorship with no cost - which
+        // is also why the Nothing Is Unlearned Axiom is scoped to layers 1-6 only.
+        maxLevel: "zero",
+        clearActiveChallenge: true,
+        reconcileInscriptions: true,
     },
 }
 
@@ -247,6 +334,20 @@ function applyGameDataPaths(paths) {
 function setAllMaxLevels(value) {
     for (const taskName in gameData.taskData)
         gameData.taskData[taskName].maxLevel = value
+}
+
+// Nothing Is Unlearned (js/authorship.js) edits exactly two phases of this driver, 9 and 11, and
+// nothing else. Layer 7 is excluded unconditionally, which is what its own row's maxLevel: "zero"
+// comment says: rebuilding max levels is the only expensive part of the re-climb, so an Authorship
+// whose max levels survived would be an Authorship with no cost. Written `layer < 7` rather than
+// `!= 7` so that a future layer has to make this decision for itself rather than inherit it.
+//
+// The companion fix is not optional. Task.getMaxLevelMultiplier() INVERTS under the
+// dance_with_the_devil and the_darkest_time sigils, and this is what removes the one-cycle bound on
+// maxLevel that made that inverse survivable; MAX_LEVEL_INVERSE_FLOOR (js/classes.js) is what stops
+// a worn sigil from becoming a total xp shutdown whose only escape is removing the sigil.
+function keepsMaxLevelsThroughRebirth(layer) {
+    return layer < 7 && hasAxiom("nothing_is_unlearned")
 }
 
 // Returns false when the layer's gate is not met, matching the original early returns.
@@ -315,15 +416,22 @@ function runRebirthPhases(layer, spec) {
 
     if (spec.maxLevel === "recall") {                                   // 9
         const recallEffect = gameData.taskData["Cosmic Recollection"].getEffect()
+        const keepsMaxLevels = keepsMaxLevelsThroughRebirth(layer)
         for (const taskName in gameData.taskData) {
             const task = gameData.taskData[taskName]
-            task.maxLevel = Math.floor(recallEffect * task.level)
+            const recalled = Math.floor(recallEffect * task.level)
+            // The recall OVERWRITES, so at a low Cosmic Recollection effect it is a demotion as
+            // often as a grant. Nothing Is Unlearned turns it into a ratchet; without the Axiom the
+            // assignment is byte-identical to the original layer-3 block.
+            task.maxLevel = keepsMaxLevels ? Math.max(task.maxLevel, recalled) : recalled
         }
     }
 
     rebirthReset()                                                      // 10
 
-    if (spec.maxLevel === "zero")                                       // 11
+    // Phase 11 exists only to undo rebirthReset()'s promotion of level into maxLevel, so skipping it
+    // is exactly "the promotion stands" - not a separate write. Layer 7 always takes the zero.
+    if (spec.maxLevel === "zero" && !keepsMaxLevelsThroughRebirth(layer)) // 11
         setAllMaxLevels(0)
 
     if (spec.clearActiveChallenge)                                      // 12
@@ -331,13 +439,19 @@ function runRebirthPhases(layer, spec) {
 
     restoreInscriptions()                                               // 13
 
-    // Layer 6 only. Both ratchets this clears - `taxed` (the milestones W refuses to pay for) and
-    // `pledged` (the slot high-water) - exist to stop inscriptions being churned for profit, and a
-    // Ledger is the only reset that costs enough to have earned the reset. Running it on any cheaper
-    // layer is an exploit: un-inscribe everything (which leaves `taxed` intact, so W stays
-    // suppressed), press Rebirth One, and both ratchets clear while essence survives to re-latch
-    // every milestone - restoring W to its maximum and refunding the pledge.
-    if (layer === 6)
+    // A table field, not a layer number. Both ratchets this clears - `taxed` (the milestones W
+    // refuses to pay for) and `pledged` (the slot high-water) - exist to stop inscriptions being
+    // churned for profit, so the PROPERTY that admits a layer is: it must already have destroyed
+    // what the ratchet was protecting. Layers 6 and 7 both zero the Etching gain chain outright.
+    //
+    // Running it on any cheaper layer is an exploit: un-inscribe everything (which leaves `taxed`
+    // intact, so W stays suppressed), press Rebirth One, and both ratchets clear while essence
+    // survives to re-latch every milestone - restoring W to its maximum and refunding the pledge.
+    //
+    // Not running it on layer 7 is the dangerous direction: uninscribe() never lowers `pledged`, and
+    // canInscribe() treats count < pledged as a free slot, so a stale high-water against a LOG_ZERO
+    // balance is free re-targeting of every historic slot, forever.
+    if (spec.reconcileInscriptions)                                     // 14
         reconcileInscriptionsAfterLedger()
 
     return true
@@ -350,6 +464,7 @@ function rebirthThree() { return doRebirth(3) }
 function rebirthFour() { return doRebirth(4) }
 function rebirthFive() { return doRebirth(5) }
 function rebirthSix() { return doRebirth(6) }
+function rebirthSeven() { return doRebirth(7) }
 
 function resetEvilPerks() {
     if (gameData.requirements["God's Blessings"].isCompleted())
@@ -373,6 +488,9 @@ function rebirthReset(set_tab_to_jobs = true) {
             || gameData.settings.selectedTab == Tab.MILESTONES && gameData.essence > 0
             || gameData.settings.selectedTab == Tab.DARK_MATTER && gameData.dark_matter > 0
             || gameData.settings.selectedTab == Tab.LEDGER && gameData.etchings_log10 > LOG_ZERO
+            // Unconditional, unlike every currency-guarded clause above it: an Authorship never
+            // zeroes gameData.axioms, so the tab that spends them is never empty after a reset.
+            || gameData.settings.selectedTab == Tab.AUTHORSHIP
             || gameData.settings.selectedTab == Tab.REBIRTH
             || gameData.settings.selectedTab == Tab.EVILPERKS
             || gameData.settings.selectedTab == Tab.INFO

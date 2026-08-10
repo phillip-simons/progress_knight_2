@@ -10,6 +10,15 @@ function initializeUI() {
 
     createPerks("perksLayout")
     createInscriptions("inscriptionsLayout")
+    createAxioms("axiomsLayout")
+
+    // createAuthorshipGate() is NOT called here. It reads getAuthorshipGateStatus(), which reaches
+    // getEssenceGainFactors() (js/main.js) once the Ledger is unlocked - and that reads
+    // milestoneData["Transcendent Master"].getEffect(), a method setCustomEffects() monkey-patches
+    // on TWO LINES AFTER bootGame() calls initializeUI(). class Milestone has no getEffect of its
+    // own, so calling it here throws for exactly the saves layer 7 targets and bootGame's catch
+    // leaves the game with neither loop running. renderAuthorship() builds the rows on first use
+    // instead; it only ever runs from update(), which is after setCustomEffects()/addMultipliers().
 
     setLayout(peekSettingFromSave("layout"))
     setFontSize(peekSettingFromSave("fontSize"))
@@ -24,6 +33,13 @@ function initializeUI() {
         const requirement = gameData.requirements[key]
         requirement.queryElements()
     }
+
+    // bootGame() picks the opening sub-tab for Settings / Dark Matter / Metaverse / Ledger at the
+    // very end of its run. Layer 7's lives here instead, because js/main.js was not reopened for
+    // this release - without it BOTH #authorshipTab1 and #authorshipTab2 render stacked in the
+    // NARROW layout until the player clicks a sub-tab button. Idempotent: setLayout's WIDE branch
+    // above may already have run it.
+    setTabAuthorship("authorshipTab1")
 }
 
 function updateUI() {
@@ -80,6 +96,9 @@ function updateUI() {
 
     if (currentTab == Tab.LEDGER)
         renderLedger()
+
+    if (currentTab == Tab.AUTHORSHIP)
+        renderAuthorship()
 
     if (currentTab == Tab.SETTINGS)
         renderSettings()
@@ -177,6 +196,38 @@ function renderSideBar() {
         ledgerButton.classList.add("button-transcend")
     else
         ledgerButton.classList.remove("button-transcend")
+
+    // Layer 7, kept as one block rather than split between the currency list and the button list
+    // above, because both halves are answered by a SINGLE getAuthorshipGateStatus() read.
+    //
+    // Guarded on the "Authorship" latch, which is in permanentUnlocks and therefore only ever goes
+    // from false to true. Below it #axiomsInfo and #rebirthButton7 are both hidden by their own
+    // requirements anyway, so skipping the work renders nothing wrong - and the work is not free:
+    // getAuthorshipGateStatus() calls getEtchingGainLog10(), which this function already calls twice
+    // per frame (directly, and inside isNextMarginalMilestoneInReach).
+    if (gameData.requirements["Authorship"].isCompleted()) {
+        // isAuthorshipReady() would walk the same clause list a second time and pay for a second
+        // getEtchingGainLog10(). Derive both answers from one read instead.
+        const authorshipGate = getAuthorshipGateStatus()
+        let authorshipReady = true
+        let axiomGain = 0
+        for (const clause of authorshipGate) {
+            if (!clause.met) authorshipReady = false
+            if (clause.key == "gain") axiomGain = clause.have
+        }
+
+        document.getElementById("axiomsDisplay").textContent = formatWhole(gameData.axioms, 0)
+        document.getElementById("axiomsGainNoteDisplay").textContent = formatWhole(axiomGain, 0)
+        document.getElementById("axiomsGainButtonDisplay").textContent = "+" + formatWhole(axiomGain, 0)
+
+        // The same two-mechanism visibility as #rebirthButton5 / #rebirthButton6 above: the
+        // "Rebirth button 7" requirement owns the hidden CLASS, this owns the hidden PROPERTY.
+        // Layer 7's gate is four variety clauses and a gain, none of them a threshold, so no
+        // Requirement can express it - and a refused Authorship is silent (doRebirth just returns
+        // false), so an enabled button that does nothing is the failure to avoid. The Authorship
+        // tab is what says WHICH clause is short; this only hides the shortcut.
+        document.getElementById("rebirthButton7").hidden = !authorshipReady
+    }
 
     // Embrace evil indicator
     const embraceEvilButton = document.getElementById("rebirthButton2").querySelector(".button")
@@ -717,6 +768,12 @@ function renderLedger() {
     document.getElementById("inscriptionSlotsDisplay").textContent = formatWhole(used, 0) + " / " + formatWhole(pledged, 0)
     document.getElementById("inscriptionSlotCostDisplay").textContent = formatLog10(getInscriptionSlotCostLog10(pledged + 1))
 
+    // Swapping one inscription for another is free at every point in the game, but SELLING one off
+    // stops being free once an Authorship has happened: reconcileInscriptionsAfterLedger() drops
+    // `pledged` to the live count at the next reading, and after an Authorship the Etchings that
+    // would buy the slot back start at nothing. Warn only when that is actually true of this save.
+    document.getElementById("inscriptionRepriceNote").classList.toggle("hidden", gameData.rebirthSevenCount == 0)
+
     for (const entry of getInscribableEntries()) {
         // Same source list createInscriptions() built from, so the id always exists - but renderPerks
         // omits this guard and is one renamed key away from a dead session. Do not copy that.
@@ -752,6 +809,60 @@ function renderLedger() {
         button.disabled = inChallenge || (!isWorn && worn >= sigilSlots)
         document.getElementById("sigilValue" + (i + 1)).textContent =
             format(getSigilValue(key), 2) + (isWorn && !isSigilServed(key) ? " (broken)" : "")
+    }
+}
+
+function renderAuthorship() {
+    // Built lazily rather than from initializeUI(), which runs before setCustomEffects() - see the
+    // note there. "gain" is an unconditional clause of getAuthorshipGateStatus(), so #gategain is a
+    // reliable sentinel for "the rows exist"; the <template> itself is a child of the list, so
+    // childElementCount is not.
+    if (document.getElementById("gategain") == null)
+        createAuthorshipGate("authorshipGateList")
+
+    // ONE gate read per frame - see the note in renderSideBar. Everything on this page that needs
+    // to know whether the button would work derives from this list, including the button itself.
+    const gate = getAuthorshipGateStatus()
+    let ready = true
+    let gain = 0
+
+    for (const clause of gate) {
+        if (!clause.met) ready = false
+        if (clause.key == "gain") gain = clause.have
+
+        // createAuthorshipGate() built these from the same list, so the id always exists. Guarded
+        // anyway: this page is the only thing that explains a refused Authorship, and a clause that
+        // silently stopped rendering would be worse here than anywhere else in the UI.
+        const row = document.getElementById("gate" + clause.key)
+        if (row == null) continue
+
+        row.getElementsByClassName("gateLabel")[0].textContent = clause.label
+        row.getElementsByClassName("gateProgress")[0].textContent = clause.met
+            ? "\u2713"
+            : formatWhole(clause.have, 0) + " / " + formatWhole(clause.need, 0)
+        row.classList.toggle("gate-met", clause.met)
+    }
+
+    document.getElementById("axiomsAuthorshipDisplay").textContent = formatWhole(gameData.axioms, 0)
+    document.getElementById("axiomsSpentDisplay").textContent = formatWhole(getSpentAxioms(), 0)
+    document.getElementById("axiomsTotalCostDisplay").textContent = formatWhole(AXIOM_TOTAL_COST, 0)
+    document.getElementById("axiomsGainPressDisplay").textContent = formatWhole(gain, 0)
+    document.getElementById("authorshipPressButton").disabled = !ready
+
+    // Refunds mirror canChangeSigils(): free, but not while a challenge is running, because Dress
+    // Rehearsal writes its max-level snapshot at challenge entry.
+    document.getElementById("axiomRefundLockedNote").classList.toggle("hidden", gameData.active_challenge == "")
+
+    for (const key of AXIOM_NAMES) {
+        const button = document.getElementById("axiom" + removeSpaces(removeStrangeCharacters(key)))
+        if (button == null) continue
+
+        const owned = hasAxiom(key)
+        button.classList.toggle("axiom-bought", owned)
+        button.classList.toggle("axiom-locked", !owned && !canBuyAxiom(key))
+        button.getElementsByClassName("axiomCost")[0].textContent = owned
+            ? (canRefundAxiom(key) ? "Written. Click to strike it out again." : "Written.")
+            : formatWhole(AXIOM_COST[key], 0) + (AXIOM_COST[key] == 1 ? " Axiom" : " Axioms")
     }
 }
 
@@ -865,12 +976,18 @@ function renderSettings() {
     else
         document.getElementById("statsRebirth6").classList.add("hidden")
 
+    if (gameData.rebirthSevenCount > 0)
+        document.getElementById("statsRebirth7").classList.remove("hidden")
+    else
+        document.getElementById("statsRebirth7").classList.add("hidden")
+
     document.getElementById("rebirthOneCountDisplay").textContent = gameData.rebirthOneCount
     document.getElementById("rebirthTwoCountDisplay").textContent = gameData.rebirthTwoCount
     document.getElementById("rebirthThreeCountDisplay").textContent = gameData.rebirthThreeCount
     document.getElementById("rebirthFourCountDisplay").textContent = gameData.rebirthFourCount
     document.getElementById("rebirthFiveCountDisplay").textContent = gameData.rebirthFiveCount
     document.getElementById("rebirthSixCountDisplay").textContent = gameData.rebirthSixCount
+    document.getElementById("rebirthSevenCountDisplay").textContent = gameData.rebirthSevenCount
 
     document.getElementById("rebirthOneTimeDisplay").textContent = formatTime(gameData.rebirthOneTime, true)
     document.getElementById("rebirthTwoTimeDisplay").textContent = formatTime(gameData.rebirthTwoTime, true)
@@ -878,6 +995,7 @@ function renderSettings() {
     document.getElementById("rebirthFourTimeDisplay").textContent = formatTime(gameData.rebirthFourTime, true)
     document.getElementById("rebirthFiveTimeDisplay").textContent = formatTime(gameData.rebirthFiveTime, true)
     document.getElementById("rebirthSixTimeDisplay").textContent = formatTime(gameData.rebirthSixTime, true)
+    document.getElementById("rebirthSevenTimeDisplay").textContent = formatTime(gameData.rebirthSevenTime, true)
 
     document.getElementById("rebirthOneFastestDisplay").textContent = formatTime(gameData.stats.fastest1, true)
     document.getElementById("rebirthTwoFastestDisplay").textContent = formatTime(gameData.stats.fastest2, true)
@@ -885,6 +1003,8 @@ function renderSettings() {
     document.getElementById("rebirthFourFastestDisplay").textContent = formatTime(gameData.stats.fastest4, true)
     document.getElementById("rebirthFiveFastestDisplay").textContent = formatTime(gameData.stats.fastest5, true)
     document.getElementById("rebirthSixFastestDisplay").textContent = formatTime(gameData.stats.fastest6, true)
+    document.getElementById("rebirthSevenFastestDisplay").textContent = formatTime(gameData.stats.fastest7, true)
+    document.getElementById("totalAxiomsEarnedDisplay").textContent = formatWhole(gameData.stats.totalAxiomsEarned, 0)
 
     // Gain Stats
     document.getElementById("evilPerSecondDisplay").textContent = format(gameData.stats.EvilPerSecond, 3)
@@ -1349,6 +1469,22 @@ function setLayout(id) {
         document.getElementById("maincolumnLedger").classList.add("settings-main-column")
     }
 
+    // authorship layout
+
+    if (id == 0) {
+        document.getElementById("tabcolumnAuthorship").classList.add("hidden")
+        document.getElementById("authorshipTab1").appendChild(document.getElementById("authorshipPage2"))
+        setTabAuthorship("authorshipTab1")
+
+        document.getElementById("maincolumnAuthorship").classList.remove("settings-main-column")
+    }
+    else {
+        document.getElementById("tabcolumnAuthorship").classList.remove("hidden")
+        document.getElementById("authorshipTab2").appendChild(document.getElementById("authorshipPage2"))
+
+        document.getElementById("maincolumnAuthorship").classList.add("settings-main-column")
+    }
+
     selectElementInGroup("Layout", id == 0 ? 1 : 0)
 }
 
@@ -1442,6 +1578,10 @@ const Tab = Object.freeze({
     DARK_MATTER: "darkMatter",
     METAVERSE: "metaverse",
     LEDGER: "ledger",
+    // Paired 1:1 with <div class="tab column" id="authorship"> and #authorshipTabButton, the same
+    // way LEDGER pairs with #ledger. changeTab resolves a candidate's button as
+    // <tab div id> + "TabButton", so the three names must stay in step.
+    AUTHORSHIP: "authorship",
     SETTINGS: "settings",
     INFO: "info"
 })
@@ -1541,6 +1681,22 @@ function setTabLedger(tab) {
     element.classList.add("w3-blue-gray")
 }
 
+function setTabAuthorship(tab) {
+    const element = document.getElementById(tab + "TabButton")
+
+    const tabs = Array.prototype.slice.call(document.getElementsByClassName("tabAuthorship"))
+    tabs.forEach(function (tab) {
+        tab.style.display = "none"
+    })
+    document.getElementById(tab).style.display = "flex"
+
+    const tabButtons = document.getElementsByClassName("tabButtonAuthorship")
+    for (const tabButton of tabButtons) {
+        tabButton.classList.remove("w3-blue-gray")
+    }
+    element.classList.add("w3-blue-gray")
+}
+
 function getSortedPerks() {
     let sortable = [];
     for (var perkname in perks_cost) {
@@ -1592,6 +1748,57 @@ function createInscription(template, entry) {
     button.onclick = () => { toggleInscription(entry.kind, entry.key) }
 
     return button
+}
+
+function createAxioms(layoutName) {
+    const buttonTemplate = document.getElementsByClassName("axiomItem")
+    const layout = document.getElementById(layoutName)
+    if (buttonTemplate.length === 0 || layout == null) return
+
+    // AXIOM_CATALOGUE, never the bitmask and never Object.keys(gameData): catalogue order is the
+    // order the player reads them in, and js/authorship.js is append-only for the same reason.
+    for (const axiom of AXIOM_CATALOGUE) {
+        layout.appendChild(createAxiom(buttonTemplate, axiom))
+    }
+}
+
+function createAxiom(template, axiom) {
+    const button = template[0].content.firstElementChild.cloneNode(true)
+    button.getElementsByClassName("axiomName")[0].textContent = axiom.title
+    button.getElementsByClassName("axiomRule")[0].textContent = axiom.rule
+    // "axiom" prefix keeps these out of the "row" / "id" / "insc" id namespaces. Catalogue keys are
+    // already snake_case, so both calls are no-ops - they are here so a future key with a space or
+    // an apostrophe in it cannot produce an id renderAuthorship then fails to find.
+    button.id = "axiom" + removeSpaces(removeStrangeCharacters(axiom.key))
+    // The catalogue line is on the face of the button; the long form lives in js/tooltips.js, keyed
+    // by title. Native title attribute rather than the .tooltip/.tooltipText pair, which is built
+    // for table rows and would need the button to become a positioned container.
+    if (tooltips[axiom.title] != null) button.title = tooltips[axiom.title]
+    button.onclick = () => { toggleAxiomPurchase(axiom.key) }
+
+    return button
+}
+
+// The buy/refund toggle is a UI affordance, not a rule: js/authorship.js owns canBuyAxiom /
+// buyAxiom / canRefundAxiom / unbuyAxiom and each re-checks its own preconditions, so a misclick
+// on an owned Axiom refunds it in full and re-buying costs exactly what came back.
+function toggleAxiomPurchase(key) {
+    return hasAxiom(key) ? unbuyAxiom(key) : buyAxiom(key)
+}
+
+// One row per clause of the Authorship gate, built from the same list renderAuthorship reads so the
+// two can never disagree about which clauses exist - the failure this would otherwise have is a
+// clause that is unmet, invisible, and silently refusing the largest reset in the game.
+function createAuthorshipGate(layoutName) {
+    const rowTemplate = document.getElementsByClassName("gateItem")
+    const layout = document.getElementById(layoutName)
+    if (rowTemplate.length === 0 || layout == null) return
+
+    for (const clause of getAuthorshipGateStatus()) {
+        const row = rowTemplate[0].content.firstElementChild.cloneNode(true)
+        row.id = "gate" + clause.key
+        layout.appendChild(row)
+    }
 }
 
 // Keyboard shortcuts + Loadouts ( courtesy of Pseiko )

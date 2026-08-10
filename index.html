@@ -44,6 +44,7 @@
 						<div class="w3-button w3-bar-item tabButton baritem" id="darkMatterTabButton" onClick="setTab('darkMatter')">Dark Matter</div>
 						<div class="w3-button w3-bar-item tabButton baritem" id="metaverseTabButton" onClick="setTab('metaverse')">Metaverse</div>
 						<div class="w3-button w3-bar-item tabButton baritem" id="ledgerTabButton" onClick="setTab('ledger')">Ledger</div>
+						<div class="w3-button w3-bar-item tabButton baritem" id="authorshipTabButton" onClick="setTab('authorship')">Authorship</div>
 						<div class="w3-button w3-bar-item tabButton baritem" id="settingsTabButton" onClick="setTab('settings')">Settings</div>
 					</div>
 					<div id="maincolumn" class="panel w3-margin-left w3-margin-top w3-padding tabs-main-column">
@@ -270,6 +271,10 @@
 										<div class="text-caption"><span class="color-etchings">Etchings: </span><span id="etchingsDisplay"></span></div>
 										<div style="color: gray" class="sidebar-element">What the amulet has written down about you</div>
 									</div>
+									<div id="axiomsInfo" class="hidden">
+										<div class="text-caption"><span class="color-axioms">Axioms: </span><span id="axiomsDisplay"></span></div>
+										<div style="color: gray" class="sidebar-element">Rules of the game you are allowed to rewrite</div>
+									</div>
 									<div id="rebirthButton1" class="hidden">
 										<button class="w3-button button" style="margin-bottom: 0.1em; margin-top: 0.8em; width: 100%" onClick="rebirthOne()">Touch the eye</button>
 									</div>
@@ -287,6 +292,9 @@
 									</div>
 									<div id="rebirthButton6" class="hidden">
 										<button class="w3-button button" style="margin-bottom: 0.1em; margin-top: 0.8em; width: 100% " onClick="rebirthSix()">Read the amulet: <span class="color-etchings" id="etchingsGainButtonDisplay"></span></button>
+									</div>
+									<div id="rebirthButton7" class="hidden">
+										<button class="w3-button button" style="margin-bottom: 0.1em; margin-top: 0.8em; width: 100% " onClick="rebirthSeven()">Close the eye: <span class="color-axioms" id="axiomsGainButtonDisplay"></span></button>
 									</div>
 								</div>
 								<div id="jobPage" class="page" style="flex: 1; margin-left: 0.5em;">
@@ -584,6 +592,23 @@
 												<br>
 												<button class="w3-button button" style="margin-bottom: 0.4em; margin-top: 0.4em " onClick="rebirthSix()">Read the amulet</button>
 											</li>
+											<li id="rebirthNote10" class="hidden">
+												<i class="color-axioms">
+													You have read it so often that you have begun to recognise the handwriting.
+												</i>
+												<i style="color: grey">
+													<br>
+													There is no rim left and no margin left, and there is nothing about you the amulet has not already written down. The eye at its centre has been open since the day it found you. It is not watching any more. It is waiting to be closed.
+													<br>
+													If you <b>close the eye</b> the book is finished, and everything written in it goes out with it: every Etching, every note in the margin, and the last of the essence, the evil, the dark matter and the hypercubes. What you inscribed the amulet still remembers, and so do your Metaverse perks and your challenge records. In exchange you are owed
+													<i class="color-axioms">
+														<b><span id="axiomsGainNoteDisplay"></span> Axioms</b>,
+													</i>
+													and an Axiom is not a reward. It is one line of the rules, struck out and written again in your own hand.
+												</i>
+												<br>
+												<button class="w3-button button" style="margin-bottom: 0.4em; margin-top: 0.4em " onClick="rebirthSeven()">Close the eye</button>
+											</li>
 										</ul>
 									</div>
 								</div>
@@ -871,6 +896,7 @@
 										<div style="padding-top:1em">
 											<div class="text-caption">Inscriptions: <span id="inscriptionSlotsDisplay"></span></div>
 											<div style="color:gray">The next slot opens at <span class="color-etchings" id="inscriptionSlotCostDisplay"></span> Etchings earned in total.</div>
+											<div id="inscriptionRepriceNote" class="hidden" style="color:gold">You have closed the eye once already. Swapping one inscription for another is still free, but erasing one and then reading the amulet gives the slot up for good, and your Etchings begin again from nothing.</div>
 										</div>
 										<div id="inscriptionsLayout" class="perk-grid" style="padding-top:1em">
 											<template class="inscriptionItem">
@@ -928,6 +954,50 @@
 												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue6"></span></div>
 												<button id="sigilButton6" class="w3-button button" onclick="toggleSigil('the_darkest_time')">Wear sigil</button>
 											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="tab column" style="display:none" id="authorship">
+							<div id="tabcolumnAuthorship" class="panel w3-margin-left" style="display: flex">
+								<div class="w3-button w3-bar-item tabButtonAuthorship baritem w3-blue-gray" id="authorshipTab1TabButton" onClick="setTabAuthorship('authorshipTab1')">Axioms</div>
+								<div class="w3-button w3-bar-item tabButtonAuthorship baritem" id="authorshipTab2TabButton" onClick="setTabAuthorship('authorshipTab2')">The press</div>
+							</div>
+							<div id="maincolumnAuthorship" class="panel w3-margin-left w3-margin-top">
+								<div id="authorshipTab1" class="tabAuthorship">
+									<div id="authorshipPage1" class="page panel page-column w3-padding">
+										<div class="text-caption"><span class="color-axioms">Axioms: </span><span id="axiomsAuthorshipDisplay"></span></div>
+										<div style="color:gray">Written so far: <span class="color-axioms" id="axiomsSpentDisplay"></span> of the <span class="color-axioms" id="axiomsTotalCostDisplay"></span> the catalogue asks for.</div>
+										<div style="padding-top:1em">
+											<div class="text-caption authorship-title">An Axiom is not an upgrade.</div>
+											<div style="color:gray">Each one strikes out a single rule of the game and writes it again. Not one of them contains a number you can raise twice, which is why there are seven of them and not a hundred.</div>
+											<div style="color:gray">Nothing here is spent for good. Take an Axiom back at any time outside a challenge and all but one of its cost returns - the press keeps a page. And a rule that has already been rewritten does not un-write what it did while it stood.</div>
+										</div>
+										<div id="axiomRefundLockedNote" class="hidden" style="color:red">Leave your challenge before taking an Axiom back.</div>
+										<div id="axiomsLayout" class="perk-grid" style="padding-top:1em">
+											<template class="axiomItem">
+												<button class="perk axiom"><div class="axiomName"></div><div style="font-size: smaller;" class="axiomRule"></div><div style="font-size: smaller;" class="axiomCost"></div></button>
+											</template>
+										</div>
+									</div>
+								</div>
+								<div id="authorshipTab2" class="tabAuthorship">
+									<div id="authorshipPage2" class="page panel page-column w3-padding">
+										<div id="authorshipPressPanel">
+											<div class="text-caption authorship-title">Closing the eye</div>
+											<div style="color:gray">Closing the eye ends the book. The essence, the evil, the dark matter, the dark orbs, the hypercubes, every Etching and every note in the margin go with it, and the amulet is quiet until you have earned your way back to it.</div>
+											<div style="color:gray">Your inscriptions are not touched, neither the milestones nor the levels. Neither are your Metaverse perks, your perk points or your challenge records.</div>
+											<div style="padding-top:1em">
+												<div class="text-caption">This book would pay <span class="color-axioms" id="axiomsGainPressDisplay"></span> Axioms.</div>
+												<div style="color:gray">The amulet will not let you close it for nothing. All of this must be true first:</div>
+											</div>
+											<div id="authorshipGateList" style="padding-top:0.5em">
+												<template class="gateItem">
+													<div class="gate-clause"><span class="gateLabel"></span> <span class="gateProgress"></span></div>
+												</template>
+											</div>
+											<button id="authorshipPressButton" class="w3-button button" style="margin-top: 1.5em" onClick="rebirthSeven()">Close the eye</button>
 										</div>
 									</div>
 								</div>
@@ -1019,6 +1089,7 @@
 													<div id="key4" class="hidden">u - Collapse the universe</div>
 													<div id="key5" class="hidden">g - Go to Metaverse</div>
 													<div id="key6" class="hidden">r - Read the amulet</div>
+													<div id="key7" class="hidden">no key yet - Close the eye</div>
 													<div id="keyChallenge" class="hidden">1 - Enter / Exit Challenge 1, etc</div>
 												</div>
 											</li>
@@ -1037,7 +1108,7 @@
 												</div>
 											</li>
 										</ul>
-										<span id="version" style="font-size:smaller; float:right" class="w3-text-gray">Version: 3.0.1</span>
+										<span id="version" style="font-size:smaller; float:right" class="w3-text-gray">Version: 3.1.0</span>
 									</div>
 								</div>
 								<div id="statsTab" class="tabSettings">
@@ -1093,6 +1164,14 @@
 												<li>Your fastest reading is in <span id="rebirthSixFastestDisplay"></span>.</li>
 											</ul>
 										</div>
+										<div id="statsRebirth7" class="hidden">
+											<ul>
+												<li>You have closed the eye <span id="rebirthSevenCountDisplay"></span> times.</li>
+												<li>You have spent <span id="rebirthSevenTimeDisplay"></span> in this book.</li>
+												<li>Your fastest book is in <span id="rebirthSevenFastestDisplay"></span>.</li>
+												<li>You have been owed <span id="totalAxiomsEarnedDisplay"></span> Axioms in all.</li>
+											</ul>
+										</div>
 										<div id="statsChallenges">
 											<ul>
 												<li id="challengeStat1">Challenge 1 Reward: Multiplies happiness by x<span id="challengeHappinessBuffDisplay"></span>.</li>
@@ -1129,6 +1208,7 @@
 	<script type="text/javascript" src="js/tooltips.js"></script>
 	<script type="text/javascript" src="js/milestones.js"></script>
 	<script type="text/javascript" src="js/ledger.js"></script>
+	<script type="text/javascript" src="js/authorship.js"></script>
 	<script type="text/javascript" src="js/data.js"></script>
 	<script type="text/javascript" src="js/rebirth.js"></script>
 	<script type="text/javascript" src="js/main.js"></script>

@@ -498,6 +498,59 @@ button:focus {
     margin-bottom: 0.4em;
 }
 
+/* Layer 7 - Authorship. The catalogue button carries three lines (title, the rule it rewrites, its
+   price), so unlike .perk's fixed 4em height it has to be allowed to grow. */
+.axiom {
+    background-color: rgb(19, 155, 120);
+    width: 100%;
+    height: auto;
+    min-height: 4em;
+    text-align: left;
+}
+
+.axiom:hover {
+    background-color: rgb(28, 180, 140);
+}
+
+.axiom-bought, .axiom-bought:hover {
+    background-color: rgb(12, 96, 74);
+}
+
+.axiom-locked, .axiom-locked:hover {
+    background-color: #3e3e3e;
+}
+
+.axiomName {
+    font-weight: bold;
+}
+
+.axiomRule {
+    color: #e8e8e8;
+}
+
+.authorship-title {
+    color: rgb(19, 155, 120);
+    border-bottom: 0.1em solid rgb(19, 155, 120);
+    padding-bottom: 0.4em;
+    margin-bottom: 0.4em;
+}
+
+/* One clause of the Authorship gate. Unmet is the DEFAULT state: an unstyled row has to read as
+   "not done yet", because the only thing worse than a refused Authorship is a page that says the
+   gate is clear when it is not. renderAuthorship adds .gate-met on top. */
+.gate-clause {
+    padding: 0.15em 0em;
+}
+
+.gateProgress {
+    color: rgb(240, 0, 0);
+    font-weight: bold;
+}
+
+.gate-met .gateProgress {
+    color: rgb(19, 155, 120);
+}
+
 .color-happiness {
     color: rgb(15, 105, 207);
 }
@@ -527,6 +580,15 @@ button:focus {
 }
 .color-etchings {
     color: rgb(184, 115, 51);
+}
+/* Layer 7. Deliberately the one hue no other currency uses: Etchings sit at rgb(184, 115, 51)
+   immediately above this in the sidebar, and copper beside copper reads as one currency. Mid-tone
+   on purpose - roughly 3.5:1 against the light panel (white) and 3.9:1 against the dark one
+   (rgb(46, 46, 46)), i.e. the same contrast band .color-etchings already occupies on both. Every
+   .color-* rule lives in styles.css alone; dark.css and colorblind.css override none of them, so
+   this single value has to be readable on both backgrounds. */
+.color-axioms {
+    color: rgb(19, 155, 120);
 }
 
 .perk-boost {

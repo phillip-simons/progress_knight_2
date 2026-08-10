@@ -1,3 +1,15 @@
+// Floor for the inverted max-level multiplier below. PROVISIONAL - a 100x penalty ceiling is a
+// guess, not a measurement, and it wants the same calibration pass the ETCHING_* offsets got.
+//
+// Deliberately NOT gated on hasAxiom("nothing_is_unlearned"). maxLevel ratchets once that Axiom is
+// owned and refunding it does not lower a single one of them, so a floor that switched off with the
+// purchase would re-arm the shutdown it exists to prevent, against max levels the player can no
+// longer get rid of. It also cannot disturb a challenge best score: enterChallenge() forces every
+// maxLevel to 0, so inside a challenge the expression is 10 and the floor never binds. It binds only
+// for a worn sigil outside a challenge, and setChallengeProgress() reads gameData.active_challenge
+// directly, so a sigil provably never writes a score.
+const MAX_LEVEL_INVERSE_FLOOR = 0.01
+
 class Task {
     constructor(baseData) {
         this.baseData = baseData
@@ -73,7 +85,7 @@ class Task {
 
     getMaxLevelMultiplier() {
         if (isChallengeActive("dance_with_the_devil") || isChallengeActive("the_darkest_time")) {
-           return (10 / (this.maxLevel + 1))
+           return Math.max(10 / (this.maxLevel + 1), MAX_LEVEL_INVERSE_FLOOR)
         }
         else {
             let effect = gameData.taskData['Cosmic Recollection'].getEffect();
