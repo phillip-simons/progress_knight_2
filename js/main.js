@@ -6,6 +6,25 @@ onerror = () => {
     }, 30 * 1000)
 }
 
+let tickErrorReported = false
+let loadFailed = false
+
+// A throw inside update() used to leave `ticking` latched for the life of the page while saveloop
+// kept writing every 3 seconds. The loop now recovers; stop autosaving so that whatever state
+// triggered the throw does not overwrite the last good save.
+function onTickError(error) {
+    // Report once only. A deterministic failure throws 20 times a second, and hasError has already
+    // halted the simulation by then, so the repeats carry no information.
+    if (tickErrorReported) return
+    tickErrorReported = true
+    console.error(error)
+
+    tempData.hasError = true
+    document.getElementById("errorInfo").hidden = false
+    document.getElementById("errorSaveInfo").hidden = false
+    clearInterval(saveloop)
+}
+
 window.addEventListener('resize', function(event) {
     onResize(event.target.outerWidth)
 }, true);
@@ -254,7 +273,7 @@ function getDarknessXpGain() {
 }
 
 function getHappiness() {
-    if (gameData.active_challenge == "legends_never_die" || gameData.active_challenge == "the_darkest_time") return 1
+    if (isChallengeActive("legends_never_die") || isChallengeActive("the_darkest_time")) return 1
 
     const meditationEffect = getBindedTaskEffect("Meditation")
     const butlerEffect = getBindedItemEffect("Butler")
@@ -265,8 +284,8 @@ function getHappiness() {
     const happiness = godsBlessings * meditationEffect() * butlerEffect() * mindreleaseEffect()
         * multiverseFragment() * gameData.currentProperty.getEffect() * getChallengeBonus("an_unhappy_life") * stairWayToHeaven()
 
-    if (gameData.active_challenge == "dance_with_the_devil") return Math.pow(happiness, 0.075)
-    if (gameData.active_challenge == "an_unhappy_life") return Math.pow(happiness, 0.5)
+    if (isChallengeActive("dance_with_the_devil")) return Math.pow(happiness, 0.075)
+    if (isChallengeActive("an_unhappy_life")) return Math.pow(happiness, 0.5)
 
     return happiness
 }
@@ -276,9 +295,9 @@ function getEvil() {
 }
 
 function getEvilXpGain() {
-    if (gameData.active_challenge == "legends_never_die" || gameData.active_challenge == "the_darkest_time") return 1
+    if (isChallengeActive("legends_never_die") || isChallengeActive("the_darkest_time")) return 1
 
-    if (gameData.active_challenge == "dance_with_the_devil") {
+    if (isChallengeActive("dance_with_the_devil")) {
         const evilEffect = (Math.pow(getEvil(), 0.35) / 1e3) - 1
         return evilEffect < 0 ? 0 : evilEffect
     }
@@ -293,7 +312,7 @@ function getEssence() {
 }
 
 function getEssenceXpGain() {
-    if (gameData.active_challenge == "dance_with_the_devil" || gameData.active_challenge == "the_darkest_time") {
+    if (isChallengeActive("dance_with_the_devil") || isChallengeActive("the_darkest_time")) {
         const essenceEffect = (Math.pow(getEssence(), 0.35) / 1e2) - 1
         return essenceEffect <= 0.01 ? 0 : essenceEffect
     }
@@ -328,7 +347,7 @@ function applyUnpausedSpeed(value) {
 function applySpeedOnBigInt(value) {
     if (value == 0n)
         return 0n
-    return value * BigInt(Math.floor(getGameSpeed())) / BigInt(Math.floor(updateSpeed))
+    return value * bigIntSafe(Math.floor(getGameSpeed())) / BigInt(Math.floor(updateSpeed))
 }
 
 function getEvilGain() {
@@ -349,23 +368,74 @@ function getEvilGain() {
     return Math.min(evilGain, 1e308)
 }
 
+// The factors of essence gain, in multiplication order. getEssenceGain() reduces them;
+// getEssenceGainLog10() sums their logs. One list, so the two readers cannot drift apart when a
+// factor is added.
+//
+// The last ESSENCE_GAIN_LEDGER_EXCLUDED entries are excluded from the log10 sum and must stay last.
+// lifeIsValueable is raw gameData.dark_matter and essenceMultGain() is 10^essence_gain_modifier; the
+// Ledger already prices dark matter (tD) and hypercube spending (tH) directly, so counting them here
+// as well would give dark matter a true weight of 1.5 and hypercubes 2.75 instead of 0.5 and 0.25.
+const ESSENCE_GAIN_LEDGER_EXCLUDED = 2
+
+function getEssenceGainFactors() {
+    return [
+        gameData.taskData["Yin Yang"].getEffect(),
+        gameData.taskData["Essence Collector"].getEffect(),
+        milestoneData["Transcendent Master"].getEffect(),
+        milestoneData["Faint Hope"].getEffect(),
+        milestoneData["Rise of Great Heroes"].getEffect(),
+        getChallengeBonus("dance_with_the_devil"),
+        getAGiftFromGodEssenceGain(),
+        gameData.taskData["Dark Magician"].getEffect(),
+        getDarkMatterSkillEssence(),
+        gameData.requirements["The new gold"].isCompleted() ? 1000 : 1,
+
+        // --- excluded from getEssenceGainLog10(); keep these last ---
+        gameData.requirements["Life is valueable"].isCompleted() ? gameData.dark_matter : 1,
+        essenceMultGain(),
+    ]
+}
+
 function getEssenceGain() {
-    const essenceControl = gameData.taskData["Yin Yang"]
-    const essenceCollector = gameData.taskData["Essence Collector"]
-    const transcendentMaster = milestoneData["Transcendent Master"]
-    const faintHope = milestoneData["Faint Hope"]
-    const rise = milestoneData["Rise of Great Heroes"]
-    const darkMagician = gameData.taskData["Dark Magician"]
+    const factors = getEssenceGainFactors()
 
-    const theNewGold = gameData.requirements["The new gold"].isCompleted() ? 1000 : 1
-    const lifeIsValueable = gameData.requirements["Life is valueable"].isCompleted() ? gameData.dark_matter : 1
-
-    const essenceGain = essenceControl.getEffect() * essenceCollector.getEffect() * transcendentMaster.getEffect()
-        * faintHope.getEffect() * rise.getEffect() * getChallengeBonus("dance_with_the_devil")
-        * getAGiftFromGodEssenceGain() * darkMagician.getEffect() * getDarkMatterSkillEssence() 
-        * theNewGold * lifeIsValueable *  essenceMultGain()
+    let essenceGain = 1
+    for (const factor of factors)
+        essenceGain *= factor
 
     return Math.min(essenceGain, 1e308)
+}
+
+// log10 of the essence gain chain, WITHOUT the 1e308 clamp and without the last two factors.
+//
+// Unclamped on purpose: gameData.essence is pinned at the clamp for anyone who reaches the Ledger,
+// so log10(essence) carries no information. This reads the gain chain instead, in log space, where
+// the product cannot overflow. It is READ-ONLY - it never writes gameData.essence and must never be
+// used to grant essence.
+//
+// NOTE FOR BALANCE: the retained ten factors are bounded at roughly 1e85, because the three Skill
+// factors are LINEAR in level, Faint Hope is hard-softcapped, a_gift_from_god is bounded by its own
+// cost guard, and the dark-matter skill tree tops out at 2.5e13. Calibrate ETCHING_E_OFFSET against
+// a real save; do not assume the roadmap's 180.
+function getEssenceGainLog10() {
+    const factors = getEssenceGainFactors()
+    const counted = factors.length - ESSENCE_GAIN_LEDGER_EXCLUDED
+
+    let total = 0
+    for (let i = 0; i < counted; i++) {
+        const factor = factors[i]
+
+        // Faint Hope's second branch scales by log2(getUnpausedGameSpeed()), which is negative when
+        // game speed drops below 1, so a non-positive factor is reachable. The linear chain just
+        // goes negative; log space would go NaN. Report "no gain" instead.
+        if (!(factor > 0)) return LOG_ZERO
+        if (factor === Infinity) return Infinity
+
+        total += Math.log10(factor)
+    }
+
+    return total
 }
 
 function getDarkMatterGain() {
@@ -377,8 +447,12 @@ function getDarkMatterGain() {
     const TheEndIsNear = getUnspentPerksDarkmatterGainBuff() 
 
 
-    return 1 * darkRuler.getEffect() * darkMatterHarvester * darkMatterMining * darkMatterMillionaire * getChallengeBonus("the_darkest_time") * getDarkMatterSkillDarkMater() * darkMatterMultGain() *
+    const darkMatterGain = 1 * darkRuler.getEffect() * darkMatterHarvester * darkMatterMining * darkMatterMillionaire * getChallengeBonus("the_darkest_time") * getDarkMatterSkillDarkMater() * darkMatterMultGain() *
         (Desintegration == 0 ? 1 : Desintegration) * TheEndIsNear
+
+    // Clamped like evil and essence (commit 59fbfd8). This is an unclamped product of eight factors,
+    // and Infinity serializes to null, so an overflow here would be permanent rather than transient.
+    return Math.min(darkMatterGain, 1e308)
 }
 
 function getDarkMatter() {
@@ -414,12 +488,12 @@ function getUnpausedGameSpeed() {
 
     const timeWarpingSpeed = boostWarping * timeWarping.getEffect() * temporalDimension.getEffect() * timeLoop.getEffect() * warpDrive * speedSpeedSpeed * timeIsAFlatCircle
 
-    const gameSpeed = baseGameSpeed * timeWarpingSpeed * getChallengeBonus("time_does_not_fly") * getGottaBeFastGain() * getDarkMatterSkillTimeWarping() 
+    const gameSpeed = getBaseGameSpeed() * timeWarpingSpeed * getChallengeBonus("time_does_not_fly") * getGottaBeFastGain() * getDarkMatterSkillTimeWarping()
 
-    if (gameData.active_challenge == "time_does_not_fly" || gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("time_does_not_fly") || isChallengeActive("the_darkest_time"))
         return Math.pow(gameSpeed, 0.7)
 
-    if (gameData.active_challenge == "legends_never_die")
+    if (isChallengeActive("legends_never_die"))
         return Math.pow(gameSpeed, 0.75)
 
     return gameSpeed
@@ -527,7 +601,7 @@ function getNet() {
 }
 
 function getIncome() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 0
     
     return gameData.currentJob.getIncome() * getDarkMatterSkillIncome()
@@ -651,6 +725,7 @@ function increaseRealtime() {
     gameData.rebirthThreeTime += realDiff
     gameData.rebirthFourTime += realDiff
     gameData.rebirthFiveTime += realDiff
+    gameData.rebirthSixTime += realDiff
 
     if (gameData.boost_active) {
         gameData.boost_timer -= realDiff
@@ -701,193 +776,6 @@ function setEnableKeybinds(enableKeybinds) {
     selectElementInGroup("EnableKeybinds", enableKeybinds ? 0 : 1)
 }
 
-function resetEvilPerks(){
-    if (gameData.requirements["God's Blessings"].isCompleted())
-        return;
-    gameData.evil_perks_points = 0
-    gameData.evil_perks.receive_essence = 0
-    
-    if (!gameData.evil_perks_keep){
-        gameData.evil_perks.reduce_eye_requirement = 0
-        gameData.evil_perks.reduce_evil_requirement = 0
-        gameData.evil_perks.reduce_the_void_requirement = 0
-        gameData.evil_perks.reduce_celestial_requirement = 0
-    }
-}
-
-function rebirthOne() {
-    if (!gameData.requirements["Rebirth button 1"].isCompleted())
-        return;
-
-    gameData.rebirthOneCount += 1
-    if (gameData.stats.fastest1 == null || gameData.rebirthOneTime < gameData.stats.fastest1)
-        gameData.stats.fastest1 = gameData.rebirthOneTime
-    gameData.rebirthOneTime = 0
-
-    rebirthReset()
-}
-
-function rebirthTwo() {
-    if (!gameData.requirements["Rebirth button 2"].isCompleted())
-        return;
-
-    gameData.rebirthTwoCount += 1
-    gameData.evil += getEvilGain()
-
-    resetEvilPerks()
-
-    if (gameData.stats.fastest2 == null || gameData.rebirthTwoTime < gameData.stats.fastest2)
-        gameData.stats.fastest2 = gameData.rebirthTwoTime
-    gameData.rebirthOneTime = 0
-    gameData.rebirthTwoTime = 0
-
-    rebirthReset()
-    gameData.active_challenge = ""
-
-    for (const taskName in gameData.taskData) {
-        const task = gameData.taskData[taskName]
-        task.maxLevel = 0
-    }
-}
-
-function rebirthThree() {
-    if (!gameData.requirements["Rebirth button 3"].isCompleted())
-        return;
-
-    gameData.rebirthThreeCount += 1
-    gameData.essence += getEssenceGain()
-    if (gameData.essence == Infinity || gameData.essence > 1e308)
-        gameData.essence = 1e308
-    gameData.evil = evilTranGain()
-
-    resetEvilPerks()
-
-
-    if (gameData.stats.fastest3 == null || gameData.rebirthThreeTime < gameData.stats.fastest3)
-        gameData.stats.fastest3 = gameData.rebirthThreeTime
-    gameData.rebirthOneTime = 0
-    gameData.rebirthTwoTime = 0
-    gameData.rebirthThreeTime = 0
-
-    const recallEffect = gameData.taskData["Cosmic Recollection"].getEffect();
-
-    for (const taskName in gameData.taskData) {
-        const task = gameData.taskData[taskName]
-        task.maxLevel = Math.floor(recallEffect * task.level);
-    }
-
-    rebirthReset()
-    gameData.active_challenge = ""
-}
-
-function rebirthFour() {
-    if (!gameData.requirements["Rebirth button 4"].isCompleted())
-        return;
-
-    gameData.rebirthFourCount += 1
-    gameData.essence = 0
-    gameData.evil = 0
-    gameData.dark_matter += getDarkMatterGain()
-    gameData.evil_perks_points = 0
-    gameData.evil_perks.receive_essence = 0
-
-    if (gameData.metaverse.challenge_altar == 0 && gameData.perks.save_challenges == 0)  {
-        for (const challenge in gameData.challenges) {
-            gameData.challenges[challenge] = 0
-        }
-        gameData.requirements["Challenges"].completed = false
-    }
-
-    if (gameData.stats.fastest4 == null || gameData.rebirthFourTime < gameData.stats.fastest4)
-        gameData.stats.fastest4 = gameData.rebirthFourTime
-    gameData.rebirthOneTime = 0
-    gameData.rebirthTwoTime = 0
-    gameData.rebirthThreeTime = 0
-    gameData.rebirthFourTime = 0
-
-    rebirthReset()
-
-    for (const taskName in gameData.taskData) {
-        const task = gameData.taskData[taskName]
-        task.maxLevel = 0
-    }
-
-    gameData.active_challenge = ""
-}
-
-function rebirthFive() {
-    if (!gameData.requirements["Rebirth button 5"].isCompleted())
-        return;
-
-    gameData.rebirthFiveCount += 1
-    gameData.perks_points += getMetaversePerkPointsGain()
-    gameData.essence = 0
-    gameData.evil = 0
-    gameData.evil_perks_points = 0
-    gameData.evil_perks.receive_essence = 0
-    gameData.dark_matter = 0
-    gameData.dark_orbs = 0
-    gameData.dark_matter_shop.dark_orb_generator = 0
-    gameData.dark_matter_shop.a_miracle = false
-
-    gameData.dark_matter_shop.a_deal_with_the_chairman = 0
-    gameData.dark_matter_shop.a_gift_from_god = 0
-    gameData.dark_matter_shop.gotta_be_fast = 0
-    gameData.dark_matter_shop.life_coach = 0
-    
-
-    if (gameData.perks.keep_dark_mater_skills == 0) {
-        gameData.dark_matter_shop.speed_is_life = 0
-        gameData.dark_matter_shop.your_greatest_debt = 0
-        gameData.dark_matter_shop.essence_collector = 0
-        gameData.dark_matter_shop.explosion_of_the_universe = 0
-        gameData.dark_matter_shop.multiverse_explorer = 0
-    }
-
-    if (gameData.perks.save_challenges == 0) {
-        for (const challenge in gameData.challenges) {
-            gameData.challenges[challenge] = 0
-        }
-        gameData.requirements["Challenges"].completed = false
-    }
-
-    gameData.requirements["Dark Matter"].completed = false
-    gameData.requirements["Dark Matter Skills"].completed = false
-    gameData.requirements["Dark Matter Skills2"].completed = false
-
-
-    if (gameData.stats.fastest5 == null || gameData.rebirthFiveTime < gameData.stats.fastest5)
-        gameData.stats.fastest5 = gameData.rebirthFiveTime
-    gameData.rebirthOneTime = 0
-    gameData.rebirthTwoTime = 0
-    gameData.rebirthThreeTime = 0
-    gameData.rebirthFourTime = 0
-    gameData.rebirthFiveTime = 0
-
-    gameData.boost_active = false
-    gameData.boost_timer = 0
-    gameData.boost_cooldown = 0
-
-    gameData.hypercubes = 0
-    gameData.metaverse.boost_cooldown_modifier = 1
-    gameData.metaverse.boost_timer_modifier = 1
-    gameData.metaverse.boost_warp_modifier = 100
-    gameData.metaverse.hypercube_gain_modifier = 1
-    gameData.metaverse.evil_tran_gain = 0
-    gameData.metaverse.essence_gain_modifier = 0
-    gameData.metaverse.challenge_altar = 0
-    gameData.metaverse.dark_mater_gain_modifer = 0    
-
-    rebirthReset()
-
-    for (const taskName in gameData.taskData) {
-        const task = gameData.taskData[taskName]
-        task.maxLevel = 0
-    }
-
-    gameData.active_challenge = ""
-}
-
 function applyMilestones() {
     if (((gameData.requirements["Magic Eye"].isCompleted()) && (gameData.requirements["Rebirth note 2"].isCompleted())) ||
         (gameData.requirements["Almighty Eye"].isCompleted())){
@@ -928,67 +816,6 @@ function applyMilestones() {
     }
 }
 
-function rebirthReset(set_tab_to_jobs = true) {
-    if (set_tab_to_jobs) {
-        // if (gameData.settings.selectedTab == Tab.METAVERSE && gameData.perks.)
-
-        if (gameData.settings.selectedTab == Tab.METAVERSE && gameData.hypercubes > 0
-            || gameData.settings.selectedTab == Tab.CHALLENGES && gameData.evil > 10000
-            || gameData.settings.selectedTab == Tab.MILESTONES && gameData.essence > 0
-            || gameData.settings.selectedTab == Tab.DARK_MATTER && gameData.dark_matter > 0
-            || gameData.settings.selectedTab == Tab.REBIRTH
-            || gameData.settings.selectedTab == Tab.EVILPERKS 
-            || gameData.settings.selectedTab == Tab.INFO 
-        ) {
-            // do not switch tab
-        }
-        else
-            setTab("jobs")
-    }
-
-    gameData.coins = 0
-    gameData.days = 365 * 14
-    gameData.realtime = 0
-    gameData.currentJob = gameData.taskData["Beggar"]
-    gameData.currentProperty = gameData.itemData["Homeless"]
-    gameData.currentMisc = []
-    gameData.stats.EssencePerSecond = 0
-    gameData.stats.maxEssencePerSecond = 0
-    gameData.stats.maxEssencePerSecondRt = 0
-    gameData.stats.EvilPerSecond = 0
-    gameData.stats.maxEvilPerSecond = 0
-    gameData.stats.maxEvilPerSecondRt = 0
-    autoBuyEnabled = true
-
-    for (const taskName in gameData.taskData) {
-        const task = gameData.taskData[taskName]
-        if (task.level > task.maxLevel) task.maxLevel = task.level
-        task.level = 0
-        task.xp = 0
-        task.xpBigInt = BigInt(0)
-        task.isHero = false
-        task.isFinished =false
-    }
-
-    for (const itemName in gameData.itemData) {
-        var item = gameData.itemData[itemName]
-        item.isHero = false
-    }
-
-    for (const key in gameData.requirements) {
-        const requirement = gameData.requirements[key]
-        if (requirement.completed && (permanentUnlocks.includes(key) || metaverseUnlocks.includes(key))) continue
-        requirement.completed = false
-    }
-
-    // Keep milestones which were bought in the Dark Matter shop
-    if (gameData.dark_matter_shop.a_miracle) {
-        gameData.requirements["Magic Eye"].completed = true
-        if (gameData.rebirthOneCount == 0)
-            gameData.rebirthOneCount = 1
-    }
-}
-
 function getLifespan() {
     const immortality = gameData.taskData["Life Essence"]
     const superImmortality = gameData.taskData["Astral Body"]
@@ -997,10 +824,10 @@ function getLifespan() {
     const cosmicLongevity = gameData.taskData["Cosmic Longevity"]
     const speedSpeedSpeed = gameData.requirements["Speed speed speed"].isCompleted() ? 1000 : 1
     const lifeIsValueable = gameData.requirements["Life is valueable"].isCompleted() ? 1e5 : 1
-    const lifespan = baseLifespan * immortality.getEffect() * superImmortality.getEffect() * abyss.getEffect()
+    const lifespan = getBaseLifespan() * immortality.getEffect() * superImmortality.getEffect() * abyss.getEffect()
         * cosmicLongevity.getEffect() * higherDimensions.getEffect() * lifeIsValueable * speedSpeedSpeed
 
-    if (gameData.active_challenge == "legends_never_die" || gameData.active_challenge == "the_darkest_time") return Math.pow(lifespan, 0.72) + 365 * 25
+    if (isChallengeActive("legends_never_die") || isChallengeActive("the_darkest_time")) return Math.pow(lifespan, 0.72) + 365 * 25
 
     if (gameData.rebirthFiveCount > 0) return Infinity
 
@@ -1038,6 +865,9 @@ function makeHero(task) {
         task.maxLevel = 0
         task.xp = 0
         task.isHero = true
+
+        // maxLevel was just zeroed, and the heroic record is a different scale from the normal one.
+        restoreInscribedMaxLevels()
     }
 }
 
@@ -1067,7 +897,7 @@ function makeHeroes() {
                     break
                 }
         }
-        else if (req instanceof EssenceRequirement) {
+        else if (req instanceof EssenceRequirement || req instanceof EtchingRequirement) {
             if (!req.isCompletedActual(true))
                 continue
         }
@@ -1137,6 +967,8 @@ function assignMethods() {
             requirement = Object.assign(new HypercubeRequirement(requirement.querySelectors, requirement.requirements), requirement)
         } else if (requirement.type == "perkpoint") {
             requirement = Object.assign(new PerkPointRequirement(requirement.querySelectors, requirement.requirements), requirement)
+        } else if (requirement.type == "etching") {
+            requirement = Object.assign(new EtchingRequirement(requirement.querySelectors, requirement.requirements), requirement)
         }
         
 
@@ -1178,6 +1010,10 @@ function replaceSaveDict(dict, saveDict) {
 }
 
 function saveGameData() {
+    // A failed load leaves gameData as the pristine defaults. Autosaving that would destroy the
+    // player's save as a side effect of the recovery path.
+    if (loadFailed) return
+
     gameData.save_date_time = Date.now()
     localStorage.setItem("gameDataSave", JSON.stringify(gameData))
 }
@@ -1225,6 +1061,14 @@ function loadGameData() {
             replaceSaveDict(gameData.dark_matter_shop, gameDataSave.dark_matter_shop)
             replaceSaveDict(gameData.metaverse, gameDataSave.metaverse)
             replaceSaveDict(gameData.perks, gameDataSave.perks)
+            replaceSaveDict(gameData.evil_perks, gameDataSave.evil_perks)
+            // replaceSaveDict does `key in saveDict`, which THROWS on null and on primitives. A
+            // hand-edited or imported save can supply either, and a throw here lands in the catch
+            // below, which leaves gameData as the pristine defaults.
+            if (gameDataSave.inscriptions == null || typeof gameDataSave.inscriptions !== "object"
+                || Array.isArray(gameDataSave.inscriptions))
+                gameDataSave.inscriptions = gameData.inscriptions
+            replaceSaveDict(gameData.inscriptions, gameDataSave.inscriptions)
             gameData = gameDataSave
 
             if (gameData.coins == null)
@@ -1250,6 +1094,30 @@ function loadGameData() {
 
             if (gameData.perks_points == null || isNaN(gameData.perks_points))
                 gameData.perks_points = 0
+
+            // Number.isFinite, not the global isFinite: isFinite(null) === true.
+            if (!Number.isFinite(gameData.etchings_log10))
+                gameData.etchings_log10 = LOG_ZERO
+
+            if (!Number.isFinite(gameData.stats.totalEtchingsEarnedLog10))
+                gameData.stats.totalEtchingsEarnedLog10 = gameData.etchings_log10
+
+            if (!Number.isFinite(gameData.stats.maxEtchingsReachedLog10))
+                gameData.stats.maxEtchingsReachedLog10 = gameData.etchings_log10
+
+            if (gameData.sigils == null || isNaN(gameData.sigils)) gameData.sigils = 0
+            if (gameData.sigils_broken == null || isNaN(gameData.sigils_broken)) gameData.sigils_broken = 0
+            if (gameData.last_sigils == null || isNaN(gameData.last_sigils)) gameData.last_sigils = 0
+            if (gameData.stats.sigilsEverUsed == null || isNaN(gameData.stats.sigilsEverUsed))
+                gameData.stats.sigilsEverUsed = 0
+
+            // Plain null/NaN guards. Deliberately NOT the `=== 0 -> gameData.realtime` pattern used
+            // by rebirthOneTime..FourTime: seeding a timer introduced in this release from an
+            // unrelated realtime would inflate every existing player's first stats.fastest6.
+            if (gameData.rebirthFiveTime == null || isNaN(gameData.rebirthFiveTime))
+                gameData.rebirthFiveTime = 0
+            if (gameData.rebirthSixTime == null || isNaN(gameData.rebirthSixTime))
+                gameData.rebirthSixTime = 0
 
             if (gameData.settings.theme == null) {
                 gameData.settings.theme = 1
@@ -1278,10 +1146,13 @@ function loadGameData() {
     } catch (error) {
         console.error(error)
         console.log(localStorage.getItem("gameDataSave"))
+        loadFailed = true
         alert("It looks like you tried to load a corrupted save... If this issue persists, feel free to contact the developers!")
     }
 
     assignMethods()
+
+    normalizeInscriptions()
 }
 
 var intervalID = 0;
@@ -1290,44 +1161,51 @@ var executedTimes = 0;
 var in_offline_progress=false;
 var lastUpdate = 0;
 
-function setIntervalX(callback, delay, repetitions) {
-    var x = 0;
-    intervalID = window.setInterval(function () {
-
-       callback();
-
-       if (++x >= repetitions) {
-           stopOffline()
-       }
-    }, delay);
-}
-
 function calc_offline_progress(ms){
     if (ms > 10000){
         in_offline_progress = true
         intervalID = 0
-        totalTimes = 0
-        executedTimes = 0        
+        executedTimes = 0
         var offline_max_time = 3600 * 1000 // 1 hour
         if (ms > offline_max_time)
             ms = offline_max_time
-        const updates_in_one_tick = 100
-        totalTimes = ms / (1000 / updateSpeed)
-        var times = totalTimes / updates_in_one_tick
+        totalTimes = Math.floor(ms / (1000 / updateSpeed))
+
+        if (totalTimes < 1) {
+            in_offline_progress = false
+            return
+        }
+
         document.getElementById("offline_progress").hidden = false
         document.getElementById("mainarea").hidden = true
-        setIntervalX(() => update_times(updates_in_one_tick), 20, times)        
+        intervalID = window.setInterval(runOfflineBatch, 20)
     }
 }
 
-function update_times(times){
-    for (var i = 0; i < times; i++) {
+// Catch-up used to run a fixed 100 ticks per frame and write #offline_time inside the inner loop, so
+// a full hour cost 72,000 DOM writes and took ~14 s of wall clock no matter how fast the machine was.
+// Run as many ticks as fit in a frame budget instead, and report progress once per frame.
+function runOfflineBatch(){
+    const budgetEnd = Date.now() + 16
+    let alive = true
+
+    while (executedTimes < totalTimes) {
         update(false)
         executedTimes++
-        document.getElementById("offline_time").textContent = Math.floor(executedTimes*100/totalTimes) + "%"
-        if (!isAlive())
-            stopOffline()
-    }   
+
+        if (!isAlive()) {
+            alive = false
+            break
+        }
+
+        if (Date.now() >= budgetEnd)
+            break
+    }
+
+    document.getElementById("offline_time").textContent = Math.floor(executedTimes * 100 / totalTimes) + "%"
+
+    if (!alive || executedTimes >= totalTimes)
+        stopOffline()
 }
 
 function stopOffline(){
@@ -1358,8 +1236,13 @@ function update(needUpdateUI = true) {
     gameData.evil_perks_points += applySpeed(getEvilPerksGeneration())
     gameData.dark_orbs += applySpeed(getDarkOrbGeneration())
     gameData.hypercubes += applySpeed(getHypercubeGeneration())
+    if (!gameData.hypercube_cap_unlocked && getTotalPerkPoints() >= 1)
+        gameData.hypercube_cap_unlocked = true
     if (gameData.hypercubes > getHypercubeCap())
         gameData.hypercubes = getHypercubeCap()
+
+    updateSigilService()
+    updateInscribedTaskRecords()
 
     applyMilestones()
     applyEvilPerks()
@@ -1441,13 +1324,16 @@ function updateStats() {
 
     if (gameData.essence > gameData.stats.maxEssenceReached)
         gameData.stats.maxEssenceReached = gameData.essence
+
+    if (gameData.etchings_log10 > gameData.stats.maxEtchingsReachedLog10)
+        gameData.stats.maxEtchingsReachedLog10 = gameData.etchings_log10
 }
 
 function resetGameData() {
     clearInterval(saveloop)
     clearInterval(gameloop)
     if (!confirm('Are you sure you want to reset the game?')) {
-        gameloop = setInterval(update, 1000 / updateSpeed)
+        gameloop = startGameLoop()
         saveloop = setInterval(saveGameData, 3000)
         return
     }
@@ -1474,7 +1360,18 @@ function importGameData() {
 
 function exportGameData() {
     const importExportBox = document.getElementById("importExportBox")
-    const saveString = window.btoa(JSON.stringify(gameData))
+
+    let saveString
+    try {
+        // btoa throws a DOMException on any character above U+00FF, which would otherwise freeze the
+        // session from the Settings tab. Persisted content names are Latin-1 by rule; this is the net.
+        saveString = window.btoa(JSON.stringify(gameData))
+    } catch (error) {
+        console.error(error)
+        alert("Your save could not be exported. If this issue persists, feel free to contact the developers!")
+        return
+    }
+
     importExportBox.value = saveString
     copyTextToClipboard(saveString)
     setTimeout(() => {
@@ -1525,69 +1422,168 @@ function isNextDarkMagicSkillInReach() {
     return false
 }
 
+// Boot-time integrity check over the parallel content tables. console.error only: a throw here is a
+// blank page (see bootGame's comment). Catches the failure modes that are otherwise silent or fatal:
+//   - a task/item with no requirementsBaseData key -> TypeError in autoPromote(), 20 Hz
+//   - a milestone in milestoneBaseData but not in milestoneCategories -> renderMilestones()
+//     dereferences a null row (renderMilestones iterates milestoneData, NOT the categories)
+//   - a name whose id transform is not a valid CSS ident -> querySelectorAll throws in initializeUI
+//   - a missing tooltip -> the literal string "undefined" in the row
+function assertContentTableIntegrity() {
+    const identSafe = (name) => {
+        const id = removeSpaces(removeStrangeCharacters(name))
+        for (const ch of id) {
+            const code = ch.codePointAt(0)
+            if (code >= 0x80) continue
+            if (!/[A-Za-z0-9_-]/.test(ch)) return false
+        }
+        return /^[A-Za-z_-￿]/.test(id)
+    }
+
+    const inCategories = (categories) => {
+        const seen = {}
+        for (const categoryName in categories) {
+            if (headerRowColors[categoryName] === undefined)
+                console.error("integrity: no headerRowColors entry for category " + categoryName)
+            if (headerRowTextColors[categoryName] === undefined)
+                console.error("integrity: no headerRowTextColors entry for category " + categoryName)
+            for (const name of categories[categoryName]) seen[name] = true
+        }
+        return seen
+    }
+
+    const jobSeen = inCategories(jobCategories)
+    const skillSeen = inCategories(skillCategories)
+    const itemSeen = inCategories(itemCategories)
+    const milestoneSeen = inCategories(milestoneCategories)
+
+    const check = (table, seen, label, needsRequirement) => {
+        for (const name in table) {
+            if (!identSafe(name))
+                console.error("integrity: " + label + " name is not id-safe: " + name)
+            if (!seen[name])
+                console.error("integrity: " + label + " missing from its categories table: " + name)
+            if (tooltips[name] === undefined)
+                console.error("integrity: no tooltip for " + label + " " + name)
+            if (needsRequirement && gameData.requirements[name] === undefined)
+                console.error("integrity: no requirementsBaseData entry for " + label + " " + name)
+        }
+    }
+
+    check(jobBaseData, jobSeen, "job", true)
+    check(skillBaseData, skillSeen, "skill", true)
+    check(itemBaseData, itemSeen, "item", true)
+    check(milestoneBaseData, milestoneSeen, "milestone", true)
+
+    for (const layer in REBIRTH_LAYERS) {
+        const spec = REBIRTH_LAYERS[layer]
+        if (gameData.requirements[spec.gate] === undefined)
+            console.error("integrity: layer " + layer + " gate missing: " + spec.gate)
+        if (!(spec.countKey in gameData)) console.error("integrity: missing gameData." + spec.countKey)
+        if (!(spec.timerKey in gameData)) console.error("integrity: missing gameData." + spec.timerKey)
+        if (!(spec.statKey in gameData.stats)) console.error("integrity: missing gameData.stats." + spec.statKey)
+    }
+}
+
 // Loads the game save, does the initial render and starts the game update and render loop.
+//
+// Phase 0's try/catch protects only the setInterval body. Everything below runs BEFORE the two
+// intervals exist, and #errorInfo lives inside #mainarea, which is hidden until part-way through -
+// so an unprotected throw here is a blank page with no banner. The catch unhides the page, shows the
+// banner permanently, and starts NEITHER loop: a failed boot must not autosave over the player's
+// localStorage.
+let bootFailed = false
 
-createGameObjects(gameData.taskData, jobBaseData)
-createGameObjects(gameData.taskData, skillBaseData)
-createGameObjects(gameData.itemData, itemBaseData)
-createGameObjects(milestoneData, milestoneBaseData)
+function bootGame() {
+    createGameObjects(gameData.taskData, jobBaseData)
+    createGameObjects(gameData.taskData, skillBaseData)
+    createGameObjects(gameData.itemData, itemBaseData)
+    createGameObjects(milestoneData, milestoneBaseData)
 
-gameData.currentJob = gameData.taskData["Beggar"]
-gameData.currentProperty = gameData.itemData["Homeless"]
-gameData.currentMisc = []
+    gameData.currentJob = gameData.taskData["Beggar"]
+    gameData.currentProperty = gameData.itemData["Homeless"]
+    gameData.currentMisc = []
 
-gameData.requirements = requirementsBaseData
+    gameData.requirements = requirementsBaseData
 
-createMilestoneRequirements()
+    createMilestoneRequirements()
 
-tempData["requirements"] = {}
-for (const key in gameData.requirements) {
-    const requirement = gameData.requirements[key]
-    tempData["requirements"][key] = requirement
+    assertContentTableIntegrity()
+
+    tempData["requirements"] = {}
+    for (const key in gameData.requirements) {
+        const requirement = gameData.requirements[key]
+        tempData["requirements"][key] = requirement
+    }
+
+    loadGameData()
+
+    initializeUI()
+
+    setCustomEffects()
+    addMultipliers()
+
+    if ("save_date_time" in gameData && gameData.save_date_time > 0) {
+        calc_offline_progress(Date.now() - gameData.save_date_time)
+    }
+
+    if (!in_offline_progress)
+        document.getElementById("mainarea").hidden = false
+
+    onResize(window.outerWidth)
+    update()
+
+    setTab(gameData.settings.selectedTab)
+    setTabSettings("settingsTab")
+    setTabDarkMatter("shopTab")
+    setTabMetaverse("metaverseTab1")
+    setTabLedger("ledgerTab1")
 }
 
-loadGameData()
-
-initializeUI()
-
-
-setCustomEffects()
-addMultipliers()
-
-if ("save_date_time" in gameData && gameData.save_date_time > 0) {
-   calc_offline_progress(Date.now() - gameData.save_date_time);            
+try {
+    bootGame()
+} catch (error) {
+    bootFailed = true
+    console.error(error)
+    const mainarea = document.getElementById("mainarea")
+    if (mainarea != null) mainarea.hidden = false
+    const errorInfo = document.getElementById("errorInfo")
+    if (errorInfo != null) {
+        errorInfo.textContent = "The game failed to start: " + error
+        errorInfo.hidden = false
+    }
 }
-
-if (!in_offline_progress)
-    document.getElementById("mainarea").hidden = false
-
-onResize(window.outerWidth)
-update()
-
-setTab(gameData.settings.selectedTab)
-setTabSettings("settingsTab")
-setTabDarkMatter("shopTab")
-setTabMetaverse("metaverseTab1")
 
 let ticking = false;
 
-var gameloop = setInterval(function() {
-    if (ticking) return;
-    ticking = true;
-    update();
-    var ms = Date.now() - lastUpdate
-    if (lastUpdate != 0 && ms >= 10000 && !in_offline_progress)
-        calc_offline_progress(ms)
-    lastUpdate = Date.now()
+// Every site that starts the loop must go through here. resetGameData's cancel branch used to build
+// its own bare setInterval(update, ...), which silently dropped the re-entrancy guard, the error
+// handling and the mid-session offline catch-up for the rest of the session.
+function startGameLoop() {
+    return setInterval(function() {
+        if (ticking) return;
+        ticking = true;
+        try {
+            update();
+            var ms = Date.now() - lastUpdate
+            if (lastUpdate != 0 && ms >= 10000 && !in_offline_progress)
+                calc_offline_progress(ms)
+            lastUpdate = Date.now()
 
-    // fps for debug only
-    //var thisFrameTime = (thisLoop = new Date) - lastLoop;
-    //frameTime += (thisFrameTime - frameTime) / filterStrength;
-    //lastLoop = thisLoop;
+            // fps for debug only
+            //var thisFrameTime = (thisLoop = new Date) - lastLoop;
+            //frameTime += (thisFrameTime - frameTime) / filterStrength;
+            //lastLoop = thisLoop;
+        } catch (error) {
+            onTickError(error)
+        } finally {
+            ticking = false;
+        }
+    }, 1000 / updateSpeed)
+}
 
-    ticking = false;
-}, 1000 / updateSpeed)
-var saveloop = setInterval(saveGameData, 3000)
+var gameloop = bootFailed ? null : startGameLoop()
+var saveloop = bootFailed ? null : setInterval(saveGameData, 3000)
 
 /* FPS */
 /*

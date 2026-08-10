@@ -4,9 +4,87 @@ function softcap(value, cap, power = 0.5) {
     return Math.pow(value, power) * Math.pow(cap, 1 - power)
 }
 
+// BigInt() throws a RangeError on Infinity and NaN. Late game the multipliers feeding the BigInt xp
+// path do reach Infinity, and a throw inside update() takes the whole game loop down with it, so
+// every conversion of a computed number goes through here. NaN substitutes nanFallback because a
+// zeroed multiplier would silently stop all progression.
+function bigIntSafe(number, nanFallback = 0n) {
+    if (isNaN(number)) return nanFallback
+    if (number === Infinity) return BigInt(Number.MAX_VALUE)
+    if (number === -Infinity) return -BigInt(Number.MAX_VALUE)
+    // Every finite double converts exactly, so only the two sentinels above change behaviour.
+    // Math.trunc keeps this total: BigInt() also throws on a non-integer.
+    return BigInt(Math.trunc(number))
+}
+
+// Currencies that outgrow 1e308 are stored as log10 of their true value, in a field suffixed _log10.
+// A zero balance is a finite sentinel rather than -Infinity: JSON.stringify turns -Infinity into
+// null, and replaceSaveDict only backfills *absent* keys, so a null would never be repaired.
+const LOG_ZERO = -1e300
+
+// log10(10^a + 10^b) without leaving log space.
+function logAdd(aLog, bLog) {
+    if (aLog <= LOG_ZERO) return bLog
+    if (bLog <= LOG_ZERO) return aLog
+
+    const hi = Math.max(aLog, bLog)
+    const lo = Math.min(aLog, bLog)
+
+    // Past ~17 orders of magnitude the smaller term cannot move a double anyway.
+    if (hi - lo > 17) return hi
+
+    return hi + Math.log10(1 + Math.pow(10, lo - hi))
+}
+
+// softcap() for a value already in log space: cap is also a log10.
+function logSoftcap(logValue, logCap, power = 0.5) {
+    if (logValue <= logCap) return logValue
+
+    return logValue * power + logCap * (1 - power)
+}
+
+// A near-hard cap for a value that is *measured* in orders of magnitude but is itself a plain
+// number: linear up to `cap`, logarithmic above it.
+//
+// This is NOT logSoftcap() and NOT softcap(). Those apply a *power* tail to a value; this applies a
+// *log* tail, and the difference is the whole point. capWithLogTail(500, 30) === 32.7 while
+// softcap(500, 30) === 122.5. The Ledger gain formula uses it so that an unbounded input (idle
+// hypercube accumulation, a clamped essence chain) cannot dominate every gameplay input.
+//
+// Do NOT rename this to logCap: in this file a log* prefix means "the argument is already a log10"
+// (logAdd, logSoftcap, formatLog10), and this one's argument is linear.
+function capWithLogTail(value, cap) {
+    if (value <= cap) return value
+
+    return cap + Math.log10(1 + value - cap)
+}
+
+// format() for a log10 value. Mirrors all three numberNotation branches, so a logspace currency
+// renders identically to a linear one. Non-finite input is rejected rather than displayed: a
+// silently wrong small number is the main hazard of logspace storage.
+function formatLog10(logValue, decimals = 1) {
+    if (typeof logValue !== "number" || isNaN(logValue)) return "NaN"
+    if (logValue <= LOG_ZERO) return math.floor(0, decimals).toFixed(decimals)
+    if (logValue === Infinity) return "Infinity"
+
+    const tier = logValue / 3 | 0
+    if (tier <= 0) return math.floor(Math.pow(10, logValue), decimals).toFixed(decimals)
+
+    if ((gameData.settings.numberNotation == 0 || tier < 3) && (tier < formatUnits.length)) {
+        const scaled = Math.pow(10, logValue - tier * 3)
+        return math.floor(scaled, decimals).toFixed(decimals) + formatUnits[tier]
+    }
+
+    const exp = gameData.settings.numberNotation == 1 ? (logValue | 0) : (logValue / 3 | 0) * 3
+    const scaled = Math.pow(10, logValue - exp)
+    return math.floor(scaled, decimals).toFixed(decimals) + "e" + exp
+}
+
+const formatUnits = ["", "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "O", "N", "D", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Od", "Nd", "V", "Uv", "Dv", "Tv",
+"Qav", "Qiv", "Sxv", "Spv", "Ov", "Nv", "Tr", "Ut", "Dt", "Tt"]
+
 function format(number, decimals = 1) {
-    const units = ["", "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "O", "N", "D", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Od", "Nd", "V", "Uv", "Dv", "Tv",
-    "Qav", "Qiv", "Sxv", "Spv", "Ov", "Nv", "Tr", "Ut", "Dt", "Tt"]
+    const units = formatUnits
 
     // what tier? (determines SI symbol)
     const tier = Math.log10(number) / 3 | 0;

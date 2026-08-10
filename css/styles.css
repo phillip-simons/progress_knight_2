@@ -474,6 +474,30 @@ button:focus {
     background-color: #3e3e3e;
 }
 
+.inscription {
+    background-color: rgb(184, 115, 51);
+    width: 100%;
+}
+
+.inscription:hover {
+    background-color: rgb(205, 137, 74);
+}
+
+.inscription-bought, .inscription-bought:hover {
+    background-color: rgb(110, 66, 27);
+}
+
+.inscription-locked, .inscription-locked:hover {
+    background-color: #3e3e3e;
+}
+
+.ledger-title {
+    color: rgb(184, 115, 51);
+    border-bottom: 0.1em solid rgb(184, 115, 51);
+    padding-bottom: 0.4em;
+    margin-bottom: 0.4em;
+}
+
 .color-happiness {
     color: rgb(15, 105, 207);
 }
@@ -500,6 +524,9 @@ button:focus {
 }
 .color-income {
     color: lightgreen;
+}
+.color-etchings {
+    color: rgb(184, 115, 51);
 }
 
 .perk-boost {

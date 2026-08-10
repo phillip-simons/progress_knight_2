@@ -20,6 +20,7 @@
     dark_orbs: 0,
     hypercubes: 0,
     perks_points: 0,
+    hypercube_cap_unlocked: false,
     perks: {
         auto_dark_orb: 0,
         auto_dark_shop: 0,
@@ -39,6 +40,34 @@
         more_perk_points : 0
     },
 
+    // Layer 6 - The Ledger.
+    // etchings_log10 stores log10 of the true Etching count, never the count itself. Zero is the
+    // finite LOG_ZERO sentinel, not -Infinity: JSON.stringify turns -Infinity into null and
+    // replaceSaveDict only backfills *absent* keys, so a null would never be repaired.
+    etchings_log10: LOG_ZERO,
+
+    // Sigil bitmasks over SIGIL_BITS (js/challenges.js). Scalars on purpose: a bitmask migrates for
+    // free, a dict would need its own replaceSaveDict call.
+    //   sigils        - currently worn
+    //   sigils_broken - NOT continuously worn since the last Ledger; getSigilWeight ignores these
+    //   last_sigils   - served through the previous Ledger; drives the repeat discount
+    sigils: 0,
+    sigils_broken: 0,
+    last_sigils: 0,
+
+    // NESTED DICT. It needs its own replaceSaveDict call in loadGameData, or a fifth key added here
+    // later is undefined for every existing player (the standing gameData.evil_perks counterexample).
+    //
+    // `tasks` is a PLAIN OBJECT keyed by task name, mapping to { base, hero } peak levels. It must
+    // never be an array (JSON.stringify drops string-keyed properties of an Array, which would erase
+    // every task inscription on the next autosave) and it must never be passed to replaceSaveDict
+    // (whose delete loop would erase every entry against the empty default).
+    inscriptions: {
+        milestones: [],
+        tasks: {},
+        taxed: [],
+        pledged: 0,
+    },
 
     paused: false,
     timeWarpingEnabled: true,
@@ -53,6 +82,8 @@
     rebirthFourTime: 0,
     rebirthFiveCount: 0,
     rebirthFiveTime: 0,
+    rebirthSixCount: 0,
+    rebirthSixTime: 0,
 
     currentJob: null,
     currentProperty: null,
@@ -74,6 +105,8 @@
         fastest2: null,
         fastest3: null,
         fastest4: null,
+        fastest5: null,
+        fastest6: null,
         fastestGame: null,
         EvilPerSecond: 0,
         maxEvilPerSecond: 0,
@@ -82,6 +115,9 @@
         maxEssencePerSecond: 0,
         maxEssencePerSecondRt: 0,
         maxEssenceReached: 0,
+        sigilsEverUsed: 0,
+        totalEtchingsEarnedLog10: LOG_ZERO,
+        maxEtchingsReachedLog10: LOG_ZERO,
     },
     active_challenge: "",
     challenges: {
@@ -141,7 +177,17 @@ const baseLifespan = 365 * 70
 const baseGameSpeed = 4
 const heroIncomeMult = 2.5e18
 
-const permanentUnlocks = ["Quick task display", "Evil perks", "Rebirth tab", "Dark Matter", "Dark Matter Skills", "Dark Matter Skills2", "Metaverse", "Metaverse Perks", "Metaverse Perks Button", "Congratulations"]
+// Read through these rather than the constants directly. They are the values a future prestige layer
+// would rewrite, and every call site has to go through one place for that to be possible.
+// updateSpeed is deliberately not here: its call sites are tick-rate arithmetic, not a tunable.
+function getBaseLifespan() { return baseLifespan }
+function getBaseGameSpeed() { return baseGameSpeed }
+function getHeroIncomeMult() { return heroIncomeMult }
+
+// "Milestones" is a bugfix: its tab button is gated by an EssenceRequirement at 1 and was on neither
+// exemption list, so a Ledger (which zeroes essence) would hide the tab showing the Marginal track.
+// "Sigils" is gated at 1e300 essence and would likewise vanish after every Ledger.
+const permanentUnlocks = ["Quick task display", "Evil perks", "Rebirth tab", "Milestones", "Dark Matter", "Dark Matter Skills", "Dark Matter Skills2", "Metaverse", "Metaverse Perks", "Metaverse Perks Button", "Congratulations", "Sigils"]
 const metaverseUnlocks = ["Reduce Boost Cooldown", "Increase Boost Duration", "Increase Hypercube Gain", "Gain evil at new transcension",
     "Essence gain multiplier", "Challenges are not reset", "Dark Matter gain multiplier"]
 
@@ -190,6 +236,13 @@ const jobBaseData = {
     "Player One": { name: "Player One", maxXp: Infinity, income: 2.5e54, heroxp: 1200 },
     "Lost in the dark": { name: "Lost in the dark", maxXp: Infinity, income: 2.5e58, heroxp: 1358 },
     "Omega": { name: "Omega", maxXp: Infinity, income: 2.5e62, heroxp: 3120 },
+
+    // heroxp values are exact multiples of 9 so floor(heroxp / 9) in getHeroBigIntFactor is
+    // unambiguous: bands 400/450/500/560 against Omega's 346.
+    "Errata Prima": { name: "Errata Prima", maxXp: Infinity, income: 2.5e66, heroxp: 3600 },
+    "Colophon": { name: "Colophon", maxXp: Infinity, income: 2.5e70, heroxp: 4050 },
+    "Blank Leaf": { name: "Blank Leaf", maxXp: Infinity, income: 2.5e74, heroxp: 4500 },
+    "Dedication": { name: "Dedication", maxXp: Infinity, income: 2.5e78, heroxp: 5040 },
 }
 
 const skillBaseData = {
@@ -321,6 +374,8 @@ const requirementsBaseData = {
     "Dark Milestones": new EssenceRequirement([removeSpaces(".Dark Milestones")], [{ requirement: 5e10 }]),
     "Metaverse Milestones": new EssenceRequirement([removeSpaces(".Metaverse Milestones")], [{ requirement: 1e60 }]),
     "Metaverse Guards": new EssenceRequirement([removeSpaces(".Metaverse Guards")], [{ requirement: 1e90 }]),
+    "The Margin": new EssenceRequirement([removeSpaces(".The Margin")], [{ requirement: 1e300 }]),
+    "Marginal Milestones": new EtchingRequirement([removeSpaces(".Marginal Milestones")], [{ requirement_log10: 0 }]),
     
     // Rebirth items
     "Rebirth tab": new AgeRequirement(["#rebirthTabButton"], [{ requirement: 25 }]),
@@ -333,12 +388,14 @@ const requirementsBaseData = {
     "Rebirth note 6": new TaskRequirement(["#rebirthNote6"], [{ task: "Cosmic Recollection", requirement: 1 }]),
     "Rebirth note 7": new EssenceRequirement(["#rebirthNote7"], [{ requirement: 5e10 }]),
     "Rebirth note 8": new EssenceRequirement(["#rebirthNote8"], [{ requirement: 1e60 }]),
+    "Rebirth note 9": new EssenceRequirement(["#rebirthNote9"], [{ requirement: 1e300 }]),
 
     "Rebirth button 1": new AgeRequirement(["#rebirthButton1"], [{ requirement: 65 }]),
     "Rebirth button 2": new AgeRequirement(["#rebirthButton2"], [{ requirement: 200 }]),
     "Rebirth button 3": new TaskRequirement(["#rebirthButton3"], [{ task: "Cosmic Recollection", requirement: 1 }]),
     "Rebirth button 4": new EssenceRequirement(["#rebirthButton4"], [{ requirement: 5e10 }]),
     "Rebirth button 5": new EssenceRequirement(["#rebirthButton5"], [{ requirement: 1e60 }]),
+    "Rebirth button 6": new EssenceRequirement(["#rebirthButton6"], [{ requirement: 1e300 }]),
 
     "Rebirth stats evil": new AgeRequirement(["#statsEvilGain"], [{ requirement: 200 }]),
     "Rebirth stats essence": new TaskRequirement(["#statsEssenceGain"], [{ task: "Cosmic Recollection", requirement: 1 }]),
@@ -350,6 +407,7 @@ const requirementsBaseData = {
     "Dark Matter info": new DarkMatterRequirement(["#darkMatterInfo"], [{ requirement: 1 }]),
     "Dark Orbs info": new DarkOrbsRequirement(["#darkOrbsInfo"], [{ requirement: 1 }]),
     "Hypercubes info": new HypercubeRequirement(["#hypercubesInfo"], [{ requirement: 1 }]),
+    "Etchings info": new EtchingRequirement(["#etchingsInfo"], [{ requirement_log10: 0 }]),
 
     // Common work
     "Beggar": new TaskRequirement([getQuerySelector("Beggar")], []),
@@ -401,6 +459,14 @@ const requirementsBaseData = {
     "Player One": new TaskRequirement([getQuerySelector("Player One")], [{ task: "Snow Crash", requirement: 1000, herequirement: 160000 }]),
     "Lost in the dark": new TaskRequirement([getQuerySelector("Lost in the dark")], [{ task: "Player One", requirement: 2500, herequirement: 158000 }]),
     "Omega": new TaskRequirement([getQuerySelector("Omega")], [{ task: "Lost in the dark", requirement: 25000, herequirement: 185000 }]),
+
+    // The Margin
+    // "Errata Prima" deliberately has no herequirement: essence is hard-clamped to 1e308, so any
+    // hero-tier essence threshold above that would block the whole Margin hero tier forever.
+    "Errata Prima": new EssenceRequirement([getQuerySelector("Errata Prima")], [{ requirement: 1e300 }]),
+    "Colophon": new TaskRequirement([getQuerySelector("Colophon")], [{ task: "Errata Prima", requirement: 1000, herequirement: 150000 }]),
+    "Blank Leaf": new TaskRequirement([getQuerySelector("Blank Leaf")], [{ task: "Colophon", requirement: 2500, herequirement: 160000 }]),
+    "Dedication": new TaskRequirement([getQuerySelector("Dedication")], [{ task: "Blank Leaf", requirement: 10000, herequirement: 175000 }]),
 
     // Fundamentals
     "Concentration": new TaskRequirement([getQuerySelector("Concentration")], []),
@@ -555,13 +621,20 @@ const requirementsBaseData = {
     "Metaverse Perks": new PerkPointRequirement(["#metaversePage2"], [{ requirement: 1 }]),
     "Metaverse Perks Button": new PerkPointRequirement(["#metaverseTab2TabButton"], [{ requirement: 1 }]),
 
+    // Ledger
+    // "Ledger" gates the tab BUTTON only, never the #ledger div: changeTab detects the current tab
+    // from the div but tests a candidate's availability on its button.
+    "Ledger": new EtchingRequirement(["#ledgerTabButton"], [{ requirement_log10: 0 }]),
+    "Sigils": new EssenceRequirement(["#sigilPanel"], [{ requirement: 1e300 }]),
+
     // ShortKeyInfo
     "keyChallenge": new EvilRequirement(["#keyChallenge"], [{ requirement: 10000 }]),
     "key1": new AgeRequirement(["#key1"], [{ requirement: 65 }]),
     "key2": new AgeRequirement(["#key2"], [{ requirement: 200 }]),
     "key3": new TaskRequirement(["#key3"], [{ task: "Cosmic Recollection", requirement: 1 }]),
     "key4": new EssenceRequirement(["#key4"], [{ requirement: 5e10 }]),
-    "key5": new EssenceRequirement(["#key5"], [{ requirement: 1e90 }]),
+    "key5": new EssenceRequirement(["#key5"], [{ requirement: 1e60 }]),
+    "key6": new EssenceRequirement(["#key6"], [{ requirement: 1e300 }]),
 
     // Evil perks
     "Evil perk essence": new EssenceRequirement(["#evilperk5"], [{ requirement: 150000000 }]),
@@ -575,7 +648,10 @@ const jobCategories = {
     "The Arcane Association": ["Student", "Apprentice Mage", "Adept Mage", "Master Wizard", "Archmage", "Chronomancer", "Chairman", "Imperator"],
     "The Void": ["Corrupted", "Void Slave", "Void Fiend", "Abyss Anomaly", "Void Wraith", "Void Reaver", "Void Lord", "Abyss God"],
     "Galactic Council": ["Eternal Wanderer", "Nova", "Sigma Proioxis", "Acallaris", "One Above All"],
-    "Metaverse Guards": ["Snow Crash", "Player One", "Lost in the dark", "Omega"]
+    "Metaverse Guards": ["Snow Crash", "Player One", "Lost in the dark", "Omega"],
+    // Appended last on purpose: getPreviousTaskInCategory's carry-over is what hands "Errata Prima"
+    // the prerequisite "Omega".
+    "The Margin": ["Errata Prima", "Colophon", "Blank Leaf", "Dedication"]
 }
 
 const skillCategories = {
@@ -616,7 +692,9 @@ const headerRowColors = {
     "Heroic Milestones": "#ff6600",
     "Dark Milestones": "#873160",
     "Metaverse Milestones": "#09a0e6",
-    "Metaverse Guards": "rgb(9, 160, 230)"
+    "Metaverse Guards": "rgb(9, 160, 230)",
+    "The Margin": "#2b2b2b",
+    "Marginal Milestones": "#7a5c3e"
 }
 
 const headerRowTextColors = {
@@ -642,6 +720,8 @@ const headerRowTextColors = {
     "Dark Milestones": "purple",
     "Metaverse Milestones": "purple",
     "Metaverse Guards": "purple",
+    "The Margin": "white",
+    "Marginal Milestones": "gold",
 }
 
 function getPreviousTaskInCategory(task) {

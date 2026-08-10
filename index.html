@@ -43,6 +43,7 @@
 						<div class="w3-button w3-bar-item tabButton baritem" id="rebirthTabButton" onClick="setTab('rebirth')">Amulet</div>
 						<div class="w3-button w3-bar-item tabButton baritem" id="darkMatterTabButton" onClick="setTab('darkMatter')">Dark Matter</div>
 						<div class="w3-button w3-bar-item tabButton baritem" id="metaverseTabButton" onClick="setTab('metaverse')">Metaverse</div>
+						<div class="w3-button w3-bar-item tabButton baritem" id="ledgerTabButton" onClick="setTab('ledger')">Ledger</div>
 						<div class="w3-button w3-bar-item tabButton baritem" id="settingsTabButton" onClick="setTab('settings')">Settings</div>
 					</div>
 					<div id="maincolumn" class="panel w3-margin-left w3-margin-top w3-padding tabs-main-column">
@@ -125,7 +126,7 @@
 							</template>
 							<template class="rowMilestoneTemplate">
 								<tr>
-									<td class="essence color-essence"></td>
+									<td class="cost"><span class="essence color-essence"></span><span class="etchings color-etchings"></span></td>
 									<td>
 										<div class="progress-bar progressBar tooltip" style="width: 100%">
 											<div class="progress-fill progressFill" style="background-color: green"></div>
@@ -151,6 +152,7 @@
 										<span class="essence color-essence"></span>
 										<span class="darkMatter color-dark-matter"></span>
 										<span class="hypercube color-hypercubes"></span>
+										<span class="etchings color-etchings"></span>
 									</div>
 									<div class="effect">
 										<span class="w3-text-gray">Next effect:</span> <span class="effectValue"></span>
@@ -174,6 +176,7 @@
 									</div>
 									<div class="text-caption" id="errorInfo" hidden="hidden">
 										<div>⚠️ Oh no! It looks like something on the site broke.. If this issue persists, feel free to contact the developers.</div>
+										<div id="errorSaveInfo" hidden="hidden">Autosaving has been paused to protect your last save. Reload the page to restore it.</div>
 										<br>
 									</div>
 									<div id="deathText" class="hidden">
@@ -263,6 +266,10 @@
 										<div class="text-caption"><span class="color-hypercubes">Hypercubes: </span><span id="hypercubesDisplay"></span></div>
 										<div style="color: gray" class="sidebar-element">for Metaverse sacrifices</div>
 									</div>
+									<div id="etchingsInfo" class="hidden">
+										<div class="text-caption"><span class="color-etchings">Etchings: </span><span id="etchingsDisplay"></span></div>
+										<div style="color: gray" class="sidebar-element">What the amulet has written down about you</div>
+									</div>
 									<div id="rebirthButton1" class="hidden">
 										<button class="w3-button button" style="margin-bottom: 0.1em; margin-top: 0.8em; width: 100%" onClick="rebirthOne()">Touch the eye</button>
 									</div>
@@ -277,6 +284,9 @@
 									</div>
 									<div id="rebirthButton5" class="hidden">
 										<button class="w3-button button" style="margin-bottom: 0.1em; margin-top: 0.8em; width: 100% " onClick="rebirthFive()">Metaverse: <span id="metaversePerkPointsGainButtonDisplay"></span></button>
+									</div>
+									<div id="rebirthButton6" class="hidden">
+										<button class="w3-button button" style="margin-bottom: 0.1em; margin-top: 0.8em; width: 100% " onClick="rebirthSix()">Read the amulet: <span class="color-etchings" id="etchingsGainButtonDisplay"></span></button>
 									</div>
 								</div>
 								<div id="jobPage" class="page" style="flex: 1; margin-left: 0.5em;">
@@ -557,6 +567,23 @@
 												<br>
 												<button class="w3-button button" style="margin-bottom: 0.4em; margin-top: 0.4em " onClick="rebirthFive()">Go to Metaverse</button>
 											</li>
+											<li id="rebirthNote9" class="hidden">
+												<i class="color-etchings">
+													The shivering stops. It does not start again.
+												</i>
+												<i style="color: grey">
+													<br>
+													The etching you first noticed on your 45th birthday has spread across both faces of the amulet and around the rim. It is not a symbol. It is a number, and it has no room left to get any longer.
+													<br>
+													If you <b>read the amulet</b>, everything the eye, the mouth, the tendrils and the Metaverse ever gave you is struck out: essence, evil, evil perks, dark matter, dark orbs, both dark matter shops, hypercubes and every sacrifice at the altar. Your Metaverse perk points and your challenge records are not touched. In exchange the amulet gives you
+													<i class="color-etchings">
+														<b><span id="etchingsGainNoteDisplay"></span> Etchings</b>,
+													</i>
+													and for the first time it lets you decide what it keeps.
+												</i>
+												<br>
+												<button class="w3-button button" style="margin-bottom: 0.4em; margin-top: 0.4em " onClick="rebirthSix()">Read the amulet</button>
+											</li>
 										</ul>
 									</div>
 								</div>
@@ -825,6 +852,87 @@
 								</div>
 							</div>
 						</div>
+						<div class="tab column" style="display:none" id="ledger">
+							<div id="tabcolumnLedger" class="panel w3-margin-left" style="display: flex">
+								<div class="w3-button w3-bar-item tabButtonLedger baritem w3-blue-gray" id="ledgerTab1TabButton" onClick="setTabLedger('ledgerTab1')">Inscribe</div>
+								<div class="w3-button w3-bar-item tabButtonLedger baritem" id="ledgerTab2TabButton" onClick="setTabLedger('ledgerTab2')">Sigils</div>
+							</div>
+							<div id="maincolumnLedger" class="panel w3-margin-left w3-margin-top">
+								<div id="ledgerTab1" class="tabLedger">
+									<div id="ledgerPage1" class="page panel page-column w3-padding">
+										<div class="text-caption"><span class="color-etchings">Etchings: </span><span id="etchingsLedgerDisplay"></span></div>
+										<div style="color:gray">Next reading is worth <span class="color-etchings" id="etchingsLedgerGainDisplay"></span> Etchings.</div>
+										<div style="color:gray">Pledged: <span class="color-etchings" id="etchingsPledgedDisplay"></span>. Etchings are never spent, only pledged.</div>
+										<div style="padding-top:1em">
+											<div class="text-caption ledger-title">The amulet only records what it watches you do.</div>
+											<div style="color:gray">An inscription survives every reset from here on. But an inscribed milestone stops counting toward your Etching gain, so every permanence you buy taxes the faucet that pays for the next one.</div>
+											<div style="color:gray">Inscriptions are suspended inside challenges, and while you wear the Dance with the Devil or Darkest Time sigil.</div>
+										</div>
+										<div style="padding-top:1em">
+											<div class="text-caption">Inscriptions: <span id="inscriptionSlotsDisplay"></span></div>
+											<div style="color:gray">The next slot opens at <span class="color-etchings" id="inscriptionSlotCostDisplay"></span> Etchings earned in total.</div>
+										</div>
+										<div id="inscriptionsLayout" class="perk-grid" style="padding-top:1em">
+											<template class="inscriptionItem">
+												<button class="perk inscription"><div class="inscriptionName"></div><div style="font-size: smaller;" class="inscriptionCost"></div></button>
+											</template>
+										</div>
+									</div>
+								</div>
+								<div id="ledgerTab2" class="tabLedger">
+									<div id="ledgerPage2" class="page panel page-column w3-padding">
+										<div id="sigilPanel">
+											<div class="text-caption ledger-title">Sigils</div>
+											<div style="color:gray">A worn sigil applies its challenge's penalty for the whole run and raises what the amulet pays you for it.</div>
+											<div style="color:gray">A sigil only counts if you have worn it continuously since your last reading. One you wore last time pays a third as much, so rotate them.</div>
+											<div style="color:gray">Sigils cannot be changed while a challenge is active.</div>
+											<div style="padding-top:1em">
+												<div class="text-caption">Worn: <span id="sigilSlotsDisplay"></span></div>
+												<div style="color:gray">Etching gain from sigils: +<span class="color-etchings" id="sigilWeightDisplay"></span></div>
+												<div id="sigilGraceNote" class="hidden" style="color:gold">You may still change your loadout without losing credit for this reading.</div>
+												<div id="sigilLockedNote" class="hidden" style="color:red">Exit your challenge before changing sigils.</div>
+											</div>
+											<div id="sigilCard1" style="padding-top:2em">
+												<div class="text-caption">1. An unhappy life</div>
+												<div style="color: gray; padding-bottom: 0.3em">Reduces happiness by ^0.5</div>
+												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue1"></span></div>
+												<button id="sigilButton1" class="w3-button button" onclick="toggleSigil('an_unhappy_life')">Wear sigil</button>
+											</div>
+											<div id="sigilCard2" style="padding-top:2em">
+												<div class="text-caption">2. The rich and the poor</div>
+												<div style="color: gray; padding-bottom: 0.3em">Reduces income by ^0.35</div>
+												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue2"></span></div>
+												<button id="sigilButton2" class="w3-button button" onclick="toggleSigil('rich_and_the_poor')">Wear sigil</button>
+											</div>
+											<div id="sigilCard3" style="padding-top:2em">
+												<div class="text-caption">3. Time does not fly</div>
+												<div style="color: gray; padding-bottom: 0.3em">Reduces time warping by ^0.7</div>
+												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue3"></span></div>
+												<button id="sigilButton3" class="w3-button button" onclick="toggleSigil('time_does_not_fly')">Wear sigil</button>
+											</div>
+											<div id="sigilCard4" style="padding-top:2em">
+												<div class="text-caption">4. Dance with the devil</div>
+												<div style="color: gray; padding-bottom: 0.3em">Happiness ^0.075, and max level reduces XP gain. Suspends your inscriptions.</div>
+												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue4"></span></div>
+												<button id="sigilButton4" class="w3-button button" onclick="toggleSigil('dance_with_the_devil')">Wear sigil</button>
+											</div>
+											<div id="sigilCard5" style="padding-top:2em">
+												<div class="text-caption">5. Legends never die</div>
+												<div style="color: gray; padding-bottom: 0.3em">Lifespan ^0.72 and finite again, time warping ^0.75, happiness does nothing.</div>
+												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue5"></span></div>
+												<button id="sigilButton5" class="w3-button button" onclick="toggleSigil('legends_never_die')">Wear sigil</button>
+											</div>
+											<div id="sigilCard6" style="padding-top:2em">
+												<div class="text-caption">6. The darkest time</div>
+												<div style="color: gray; padding-bottom: 0.3em">All of the above, income is 0, Dark Matter items disabled. Suspends your inscriptions.</div>
+												<div style="color: gray; padding-bottom: 0.3em">Etching gain: +<span id="sigilValue6"></span></div>
+												<button id="sigilButton6" class="w3-button button" onclick="toggleSigil('the_darkest_time')">Wear sigil</button>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
 						<div class="tab column" style="display:none" id="settings">
 							<div id="tabcolumnSettings" class="panel w3-padding page-column">
 								<div class="w3-button w3-bar-item tabButtonSettings baritem w3-blue-gray" id="settingsTabTabButton" onClick="setTabSettings('settingsTab')">Settings</div>
@@ -910,6 +1018,7 @@
 													<div id="key3" class="hidden">t - Transcend</div>
 													<div id="key4" class="hidden">u - Collapse the universe</div>
 													<div id="key5" class="hidden">g - Go to Metaverse</div>
+													<div id="key6" class="hidden">r - Read the amulet</div>
 													<div id="keyChallenge" class="hidden">1 - Enter / Exit Challenge 1, etc</div>
 												</div>
 											</li>
@@ -928,7 +1037,7 @@
 												</div>
 											</li>
 										</ul>
-										<span id="version" style="font-size:smaller; float:right" class="w3-text-gray">Version: 2.5.0</span>
+										<span id="version" style="font-size:smaller; float:right" class="w3-text-gray">Version: 3.0.0</span>
 									</div>
 								</div>
 								<div id="statsTab" class="tabSettings">
@@ -977,6 +1086,13 @@
 												<li>Your fastest Metaverse is in <span id="rebirthFiveFastestDisplay"></span>.</li>
 											</ul>
 										</div>
+										<div id="statsRebirth6" class="hidden">
+											<ul>
+												<li>You have read the amulet <span id="rebirthSixCountDisplay"></span> times.</li>
+												<li>You have spent <span id="rebirthSixTimeDisplay"></span> in this reading.</li>
+												<li>Your fastest reading is in <span id="rebirthSixFastestDisplay"></span>.</li>
+											</ul>
+										</div>
 										<div id="statsChallenges">
 											<ul>
 												<li id="challengeStat1">Challenge 1 Reward: Multiplies happiness by x<span id="challengeHappinessBuffDisplay"></span>.</li>
@@ -1012,7 +1128,9 @@
 	<script type="text/javascript" src="js/metaverse.js"></script>
 	<script type="text/javascript" src="js/tooltips.js"></script>
 	<script type="text/javascript" src="js/milestones.js"></script>
+	<script type="text/javascript" src="js/ledger.js"></script>
 	<script type="text/javascript" src="js/data.js"></script>
+	<script type="text/javascript" src="js/rebirth.js"></script>
 	<script type="text/javascript" src="js/main.js"></script>
 </body>
 </html>

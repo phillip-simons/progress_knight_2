@@ -50,6 +50,12 @@ const tooltips = {
     "Lost in the dark": "They both knew they would only go forward when next to each other. They vowed that they would always be together, earn a lot of money and move to a better place where they would be very happy.",
     "Omega": "ω",
 
+    // The Margin
+    "Errata Prima": "The list of everything the first edition got wrong. It is longer than the edition.",
+    "Colophon": "The note at the back that records who set the type, in what face, and on what paper. Someone had to be told.",
+    "Blank Leaf": "The page that carries nothing, so the binding has somewhere to end. Being nothing is full-time work.",
+    "Dedication": "For you. There was never anyone else it could have been.",
+
     // Fundamentals
     "Concentration": "Improve your learning speed through practising intense concentration activities.",
     "Productivity": "Learn to procrastinate less at work and receive more job experience per day.",
@@ -214,4 +220,27 @@ const tooltips = {
     "Time is a flat circle": "This is a world where nothing is solved. Someone once told me, time is a flat circle. Everything we’ve ever done or will do, we’re gonna do over and over and over again.",
     "The End is near": "We don't try to live forever",
     "The End": "There is always an end",
+
+    // Marginal Milestones
+    "Marginal Note": "A hand you do not recognise has written in the margin. It is your hand.",
+    "Footnote": "Everything important was always at the bottom of the page.",
+    "Marginalia": "The margin is wider than the text now.",
+    "Rubrication": "Mark the important parts in red. All of it is important.",
+    "Glossator": "You have started explaining the book to itself.",
+    "Palimpsest": "Scraped clean and written over, but the old script keeps showing through.",
+    "Watermark": "Hold the page to the light and the amulet is there, pressed into the fibre.",
+    "Interleaf": "Blank pages bound in between, waiting for something you have not thought of yet.",
+    "Emendation": "You correct a line you wrote a hundred lifetimes ago. It was not wrong.",
+    "First Draft": "If this is the copy, somewhere there is an original. And an author.",
+    "Catchword": "The last word of this page is the first word of the next, forever.",
+    "Signature Mark": "The folded sheets are numbered, so the binder knows the order. Someone bound this.",
+    "Redaction": "Some of it was struck out before you were given it.",
+    "Recto and Verso": "Both faces of the amulet are full. There is only the rim left.",
+    "The Wide Margin": "Nothing but margin now, and a number that has nowhere left to go.",
+
+    // Layer 6 - The Ledger
+    "Inscribe": "Pledge Etchings and the amulet keeps a permanent record. An inscribed milestone stays unlocked through every reset from here on; an inscribed job or skill has its highest level written back after every reset. Etchings are never spent, only pledged: drop an inscription and the pledge is free again at the next Ledger.",
+    "Inscriptions": "The amulet only pays for what it watches you re-earn. Every milestone you inscribe stops counting toward your Etching gain, and it keeps not counting until the next Ledger, even if you erase it first. Permanence is bought with income.",
+    "Inscriptions in challenges": "The record is set aside for the length of a challenge, and while you wear the Dance with the Devil or Darkest Time sigil. Inscribed milestones lock again and inscribed levels sit at zero until you stop, then everything comes back untouched. This protects you: those two score you on 10 / (max level + 1), so a remembered max level would make them harder, not easier.",
+    "Sigils": "Wear a challenge's penalty for a whole Ledger and the amulet pays you more for it. A sigil only counts if you wore it continuously since your last reading, and one you wore last time pays a third as much. Rotate them.",
 }

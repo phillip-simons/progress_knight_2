@@ -9,6 +9,7 @@ function initializeUI() {
     createAllRows(milestoneCategories, "milestoneTable")
 
     createPerks("perksLayout")
+    createInscriptions("inscriptionsLayout")
 
     setLayout(peekSettingFromSave("layout"))
     setFontSize(peekSettingFromSave("fontSize"))
@@ -77,6 +78,9 @@ function updateUI() {
     if (currentTab == Tab.METAVERSE)
         renderMetaverse()
 
+    if (currentTab == Tab.LEDGER)
+        renderLedger()
+
     if (currentTab == Tab.SETTINGS)
         renderSettings()
 
@@ -123,10 +127,16 @@ function renderSideBar() {
 
     document.getElementById("darkOrbsDisplay").textContent = formatTreshold(gameData.dark_orbs)
 
-    document.getElementById("timeWarping").hidden = (getUnpausedGameSpeed() / baseGameSpeed) <= 1
-    document.getElementById("timeWarpingDisplay").textContent = "x" + format(getUnpausedGameSpeed() / baseGameSpeed, 2)
+    document.getElementById("timeWarping").hidden = (getUnpausedGameSpeed() / getBaseGameSpeed()) <= 1
+    document.getElementById("timeWarpingDisplay").textContent = "x" + format(getUnpausedGameSpeed() / getBaseGameSpeed(), 2)
 
     document.getElementById("hypercubesDisplay").textContent = formatTreshold(gameData.hypercubes)
+
+    // formatLog10, never format: format(4.7) renders "4.7" for 50 000 Etchings without complaining.
+    const etchingGain = getEtchingGainLog10()
+    document.getElementById("etchingsDisplay").textContent = formatLog10(gameData.etchings_log10)
+    document.getElementById("etchingsGainNoteDisplay").textContent = formatLog10(etchingGain)
+    document.getElementById("etchingsGainButtonDisplay").textContent = "+" + formatLog10(etchingGain)
 
 
     document.getElementById("hypercubeCapText").hidden = gameData.rebirthFiveCount == 0 || getTotalPerkPoints() > 0
@@ -152,6 +162,21 @@ function renderSideBar() {
     }
 
     document.getElementById("rebirthButton5").hidden = getHypercubeCap() == Infinity && gameData.essence < 1e90
+
+    // #rebirthButton5 and #rebirthButton6 each have TWO independent visibility mechanisms and show
+    // only when both agree:
+    //   1. the `hidden` CLASS, owned by renderRequirements() via the "Rebirth button N" requirement
+    //   2. the `hidden` DOM PROPERTY, owned by this function, for state a Requirement cannot express
+    // If the button will not appear, check both before touching either. This is cosmetic only - the
+    // enforcement is REBIRTH_LAYERS[6].payoutGate, because this covers one of three entry points.
+    document.getElementById("rebirthButton6").hidden = etchingGain <= LOG_ZERO
+
+    // Read the amulet indicator, mirroring the Transcend one above.
+    const ledgerButton = document.getElementById("rebirthButton6").querySelector(".button")
+    if (isNextMarginalMilestoneInReach())
+        ledgerButton.classList.add("button-transcend")
+    else
+        ledgerButton.classList.remove("button-transcend")
 
     // Embrace evil indicator
     const embraceEvilButton = document.getElementById("rebirthButton2").querySelector(".button")
@@ -192,6 +217,13 @@ function renderSideBar() {
 
     if (getDarkMatter() == 0)
         gameData.requirements["Dark Matter info"].completed = false
+
+    // Requirement.isCompleted() latches. The only other place that clears it is rebirthReset()'s
+    // loop, which SKIPS anything in permanentUnlocks / metaverseUnlocks. Any currency that can fall
+    // back to zero without going through rebirthReset needs its info block un-latched by hand.
+    // Etchings are threshold-only today, but layer 7 zeroes them, and this costs one comparison.
+    if (gameData.etchings_log10 <= LOG_ZERO)
+        gameData.requirements["Etchings info"].completed = false
 }
 
 function renderProgressBar(task, progressFill, progressBar){
@@ -517,7 +549,13 @@ function renderMilestones() {
     for (const key in milestoneData) {
         const milestone = milestoneData[key]
         const row = getRowByName(milestone.name)
-        row.querySelector(".essence").textContent = format(milestone.expense)
+
+        // Do NOT collapse these onto formatLog10. format(5000) is "5.0k" but
+        // formatLog10(Math.log10(5000)) is "4.9k": 10^(log10(x)) is not x for a double, and
+        // math.floor() truncates the shortfall downward.
+        const isEtchingPriced = getMilestoneCurrency(milestone.name) === MilestoneCurrency.ETCHINGS
+        row.querySelector(".essence").textContent = isEtchingPriced ? "" : format(milestone.expense)
+        row.querySelector(".etchings").textContent = isEtchingPriced ? formatLog10(milestone.expense_log10) : ""
 
 
         let desc = milestone.description
@@ -665,6 +703,58 @@ function renderPerks() {
     }
 }
 
+function renderLedger() {
+    const gain = getEtchingGainLog10()
+
+    document.getElementById("etchingsLedgerDisplay").textContent = formatLog10(gameData.etchings_log10)
+    document.getElementById("etchingsLedgerGainDisplay").textContent = formatLog10(gain)
+    document.getElementById("etchingsPledgedDisplay").textContent = formatLog10(getPledgedEtchingsLog10())
+
+    // Inscriptions
+    const used = getInscriptionCount()
+    const pledged = getPledgedInscriptionCount()
+
+    document.getElementById("inscriptionSlotsDisplay").textContent = formatWhole(used, 0) + " / " + formatWhole(pledged, 0)
+    document.getElementById("inscriptionSlotCostDisplay").textContent = formatLog10(getInscriptionSlotCostLog10(pledged + 1))
+
+    for (const entry of getInscribableEntries()) {
+        // Same source list createInscriptions() built from, so the id always exists - but renderPerks
+        // omits this guard and is one renamed key away from a dead session. Do not copy that.
+        const button = document.getElementById("insc" + removeSpaces(removeStrangeCharacters(entry.key)))
+        if (button == null) continue
+
+        const inscribed = isInscribed(entry.kind, entry.key)
+        button.classList.toggle("inscription-bought", inscribed)
+        button.classList.toggle("inscription-locked", !inscribed && !canInscribe(entry.kind, entry.key))
+        button.getElementsByClassName("inscriptionCost")[0].textContent = inscribed ? "Inscribed" : ("Slot " + formatWhole(used + 1, 0))
+    }
+
+    // Sigils
+    const challengeKeys = Object.keys(gameData.challenges)
+    const inChallenge = gameData.active_challenge != ""
+    const worn = countSigils(gameData.sigils)
+    const sigilSlots = getSigilSlots()
+
+    document.getElementById("sigilLockedNote").classList.toggle("hidden", !inChallenge)
+    document.getElementById("sigilGraceNote").classList.toggle("hidden", !isSigilGraceActive())
+    document.getElementById("sigilSlotsDisplay").textContent = formatWhole(worn, 0) + " / " + formatWhole(sigilSlots, 0)
+    document.getElementById("sigilWeightDisplay").textContent = format(getSigilWeight(), 2)
+
+    for (let i = 0; i < challengeKeys.length; i++) {
+        const key = challengeKeys[i]
+        const card = document.getElementById("sigilCard" + (i + 1))
+        const button = document.getElementById("sigilButton" + (i + 1))
+        const isWorn = isSigilWorn(key)
+
+        // Gate on the challenge's own unlock so a sigil never precedes the challenge it copies.
+        card.hidden = !gameData.requirements["Challenge_" + key].isCompleted()
+        button.textContent = isWorn ? "Remove sigil" : "Wear sigil"
+        button.disabled = inChallenge || (!isWorn && worn >= sigilSlots)
+        document.getElementById("sigilValue" + (i + 1)).textContent =
+            format(getSigilValue(key), 2) + (isWorn && !isSigilServed(key) ? " (broken)" : "")
+    }
+}
+
 function renderDarkMatter() {
     // Display currency
     document.getElementById("darkMatterShopDisplay").textContent = format(gameData.dark_matter)
@@ -770,23 +860,31 @@ function renderSettings() {
     else
         document.getElementById("statsRebirth5").classList.add("hidden")
 
+    if (gameData.rebirthSixCount > 0)
+        document.getElementById("statsRebirth6").classList.remove("hidden")
+    else
+        document.getElementById("statsRebirth6").classList.add("hidden")
+
     document.getElementById("rebirthOneCountDisplay").textContent = gameData.rebirthOneCount
     document.getElementById("rebirthTwoCountDisplay").textContent = gameData.rebirthTwoCount
     document.getElementById("rebirthThreeCountDisplay").textContent = gameData.rebirthThreeCount
     document.getElementById("rebirthFourCountDisplay").textContent = gameData.rebirthFourCount
     document.getElementById("rebirthFiveCountDisplay").textContent = gameData.rebirthFiveCount
+    document.getElementById("rebirthSixCountDisplay").textContent = gameData.rebirthSixCount
 
     document.getElementById("rebirthOneTimeDisplay").textContent = formatTime(gameData.rebirthOneTime, true)
     document.getElementById("rebirthTwoTimeDisplay").textContent = formatTime(gameData.rebirthTwoTime, true)
     document.getElementById("rebirthThreeTimeDisplay").textContent = formatTime(gameData.rebirthThreeTime, true)
     document.getElementById("rebirthFourTimeDisplay").textContent = formatTime(gameData.rebirthFourTime, true)
     document.getElementById("rebirthFiveTimeDisplay").textContent = formatTime(gameData.rebirthFiveTime, true)
+    document.getElementById("rebirthSixTimeDisplay").textContent = formatTime(gameData.rebirthSixTime, true)
 
     document.getElementById("rebirthOneFastestDisplay").textContent = formatTime(gameData.stats.fastest1, true)
     document.getElementById("rebirthTwoFastestDisplay").textContent = formatTime(gameData.stats.fastest2, true)
     document.getElementById("rebirthThreeFastestDisplay").textContent = formatTime(gameData.stats.fastest3, true)
     document.getElementById("rebirthFourFastestDisplay").textContent = formatTime(gameData.stats.fastest4, true)
     document.getElementById("rebirthFiveFastestDisplay").textContent = formatTime(gameData.stats.fastest5, true)
+    document.getElementById("rebirthSixFastestDisplay").textContent = formatTime(gameData.stats.fastest6, true)
 
     // Gain Stats
     document.getElementById("evilPerSecondDisplay").textContent = format(gameData.stats.EvilPerSecond, 3)
@@ -876,6 +974,11 @@ function createRow(templates, name, categoryName, categoryType) {
     if (categoryType == itemCategories) {
         row.getElementsByClassName("button")[0].onclick = categoryName == "Properties" ? () => { setCurrentProperty(name) } : () => { setMisc(name) }
     }
+    else if (categoryType == milestoneCategories) {
+        // The cost cell's colour is fixed by the milestone's currency, so renderMilestones only has
+        // to write text at 20 Hz.
+        row.getElementsByClassName("cost")[0].classList.add("color-" + getMilestoneCurrency(name))
+    }
 
     return row
 }
@@ -953,6 +1056,7 @@ function updateRequiredRows(data, categoryType) {
             const essenceElement = requiredRow.querySelector(".essence")
             const darkMatterElement = requiredRow.querySelector(".darkMatter")
             const hypercubeElement = requiredRow.querySelector(".hypercube")
+            const etchingElement = requiredRow.querySelector(".etchings")
             const effectElement = requiredRow.querySelector(".effect")
             const effectValueElement = requiredRow.querySelector(".effectValue")
 
@@ -962,6 +1066,11 @@ function updateRequiredRows(data, categoryType) {
             essenceElement.classList.add("hiddenTask")
             darkMatterElement.classList.add("hiddenTask")
             hypercubeElement.classList.add("hiddenTask")
+            // Guarded, deliberately inconsistent with the six unguarded siblings. This block runs
+            // for every requiredRow on every frame of four tabs; if the index.html span lands in a
+            // different commit from this file, an unguarded null.classList here is an immediate
+            // dead page for 100% of players. Do not "clean this up".
+            if (etchingElement) etchingElement.classList.add("hiddenTask")
             effectElement.classList.add("hiddenTask")
 
             let finalText = ""
@@ -988,8 +1097,16 @@ function updateRequiredRows(data, categoryType) {
                 } else if (requirementObject instanceof AgeRequirement) {
                     essenceElement.classList.remove("hiddenTask")
                     essenceElement.textContent = "Age " + format(requirements[0].requirement)
+                } else if (requirementObject instanceof EtchingRequirement) {
+                    if (etchingElement) {
+                        etchingElement.classList.remove("hiddenTask")
+                        etchingElement.textContent = formatLog10(requirements[0].requirement_log10) + " Etchings"
+                    }
                 }
-                else {
+                // Explicit, not a catch-all. A Requirement subclass with no `.task` used to land in
+                // the old bare `else` and throw on gameData.taskData[undefined].level, at 20 Hz.
+                // Anything unrecognised now degrades to a visible "Unknown" instead.
+                else if (requirementObject instanceof TaskRequirement) {
                     levelElement.classList.remove("hiddenTask")
                     for (const requirement of requirements) {
                         const task = gameData.taskData[requirement.task]
@@ -998,6 +1115,10 @@ function updateRequiredRows(data, categoryType) {
                     }
                     finalText = finalText.substring(0, finalText.length - 1)
                     levelElement.textContent = finalText
+                }
+                else {
+                    levelElement.classList.remove("hiddenTask")
+                    levelElement.textContent = "Unknown"
                 }
             }
             else if (data == gameData.itemData) {
@@ -1010,13 +1131,23 @@ function updateRequiredRows(data, categoryType) {
                 effectValueElement.textContent = item.unlocked ? (item.baseData.description != null ? item.baseData.description : "Happiness") : "Unknown"
             }
             else if (data == milestoneData) {
-                essenceElement.classList.remove("hiddenTask")
-                essenceElement.textContent = format(requirements[0].requirement) + " essence"
-
                 const milestone = milestoneData[nextEntity.name]
+                const isEtchingPriced = getMilestoneCurrency(milestone.name) === MilestoneCurrency.ETCHINGS
+
+                if (isEtchingPriced && etchingElement) {
+                    etchingElement.classList.remove("hiddenTask")
+                    etchingElement.textContent = formatLog10(requirements[0].requirement_log10) + " Etchings"
+                } else {
+                    essenceElement.classList.remove("hiddenTask")
+                    essenceElement.textContent = format(requirements[0].requirement) + " essence"
+                }
+
                 if (milestone.baseData.description != null) {
                     effectElement.classList.remove("hiddenTask")
-                    effectValueElement.textContent = (gameData.stats.maxEssenceReached > milestone.expense) ? milestone.baseData.description : "Unknown"
+                    const revealed = isEtchingPriced
+                        ? gameData.stats.maxEtchingsReachedLog10 >= milestone.expense_log10
+                        : gameData.stats.maxEssenceReached > milestone.expense
+                    effectValueElement.textContent = revealed ? milestone.baseData.description : "Unknown"
                 }
             }
         }
@@ -1047,7 +1178,9 @@ function getHeroicRequiredTooltip(task) {
         reqlist += "Age " + format((requirements[0].herequirement == undefined) ? requirements[0].requirement : requirements[0].herequirement) + "<br>"
     } else if (requirementObject instanceof DarkMatterRequirement) {
         reqlist += format((requirements[0].herequirement == undefined) ? requirements[0].requirement : requirements[0].herequirement) + " Dark Matter<br>"
-    } else {
+    } else if (requirementObject instanceof EtchingRequirement) {
+        reqlist += formatLog10((requirements[0].herequirement_log10 == undefined) ? requirements[0].requirement_log10 : requirements[0].herequirement_log10) + " Etchings<br>"
+    } else if (requirementObject instanceof TaskRequirement) {
         for (const requirement of requirements) {
             const task_check = gameData.taskData[requirement.task]
 
@@ -1063,6 +1196,8 @@ function getHeroicRequiredTooltip(task) {
                 reqlist += " Great " + requirement.task + " " + (task_check.isHero ? task_check.level : 0) + "/" + reqvalue + "<br>"
             }
         }
+    } else {
+        reqlist += "Unknown<br>"
     }
 
     reqlist += prevReq
@@ -1096,8 +1231,9 @@ function onResize(width) {
         qb.hidden = false
         const currentTab = gameData.settings.selectedTab
         if (currentTab == Tab.INFO) {
-            setTab(Tab.HERO)
-        }   
+            // Was Tab.HERO, which is not in the enum - only setTab's null fallback saved it.
+            setTab(Tab.JOBS)
+        }
     }
     else {
         document.getElementById("info").classList.remove("hidden")
@@ -1194,7 +1330,23 @@ function setLayout(id) {
         document.getElementById("tabcolumnMetaverse").classList.remove("hidden")
         document.getElementById("metaverseTab2").appendChild(document.getElementById("metaversePage2"))
 
-        document.getElementById("maincolumnMetaverse").classList.add("settings-main-column")     
+        document.getElementById("maincolumnMetaverse").classList.add("settings-main-column")
+    }
+
+    // ledger layout
+
+    if (id == 0) {
+        document.getElementById("tabcolumnLedger").classList.add("hidden")
+        document.getElementById("ledgerTab1").appendChild(document.getElementById("ledgerPage2"))
+        setTabLedger("ledgerTab1")
+
+        document.getElementById("maincolumnLedger").classList.remove("settings-main-column")
+    }
+    else {
+        document.getElementById("tabcolumnLedger").classList.remove("hidden")
+        document.getElementById("ledgerTab2").appendChild(document.getElementById("ledgerPage2"))
+
+        document.getElementById("maincolumnLedger").classList.add("settings-main-column")
     }
 
     selectElementInGroup("Layout", id == 0 ? 1 : 0)
@@ -1289,6 +1441,7 @@ const Tab = Object.freeze({
     REBIRTH: "rebirth",
     DARK_MATTER: "darkMatter",
     METAVERSE: "metaverse",
+    LEDGER: "ledger",
     SETTINGS: "settings",
     INFO: "info"
 })
@@ -1321,7 +1474,7 @@ function setTab(selectedTab) {
     for (tabButton of tabButtons) {
         tabButton.classList.remove("w3-blue-gray")
     }
-    element.classList.add("w3-blue-gray")
+    if (element != null) element.classList.add("w3-blue-gray")
 }
 
 function setTabSettings(tab) {
@@ -1372,6 +1525,22 @@ function setTabMetaverse(tab) {
     element.classList.add("w3-blue-gray")
 }
 
+function setTabLedger(tab) {
+    const element = document.getElementById(tab + "TabButton")
+
+    const tabs = Array.prototype.slice.call(document.getElementsByClassName("tabLedger"))
+    tabs.forEach(function (tab) {
+        tab.style.display = "none"
+    })
+    document.getElementById(tab).style.display = "flex"
+
+    const tabButtons = document.getElementsByClassName("tabButtonLedger")
+    for (const tabButton of tabButtons) {
+        tabButton.classList.remove("w3-blue-gray")
+    }
+    element.classList.add("w3-blue-gray")
+}
+
 function getSortedPerks() {
     let sortable = [];
     for (var perkname in perks_cost) {
@@ -1399,15 +1568,47 @@ function createPerk(template, name) {
     button.getElementsByClassName("perkName")[0].textContent = getMetaversePerkName(name)
     button.getElementsByClassName("perkCost")[0].textContent = getPerkCost(name)
     button.id = "id" + removeSpaces(removeStrangeCharacters(name))
-    button.onclick = () => { buyPerk(name) }    
+    button.onclick = () => { buyPerk(name) }
+
+    return button
+}
+
+function createInscriptions(layoutName) {
+    const buttonTemplate = document.getElementsByClassName("inscriptionItem")
+    const layout = document.getElementById(layoutName)
+    if (buttonTemplate.length === 0 || layout == null) return
+
+    for (const entry of getInscribableEntries()) {
+        layout.appendChild(createInscription(buttonTemplate, entry))
+    }
+}
+
+function createInscription(template, entry) {
+    const button = template[0].content.firstElementChild.cloneNode(true)
+    button.getElementsByClassName("inscriptionName")[0].textContent = entry.label
+    // "insc" prefix keeps these out of the "row"+name and "id"+name id namespaces. Entry keys are
+    // subject to the same naming rule as task names - see the contract, section 0.5.
+    button.id = "insc" + removeSpaces(removeStrangeCharacters(entry.key))
+    button.onclick = () => { toggleInscription(entry.kind, entry.key) }
 
     return button
 }
 
 // Keyboard shortcuts + Loadouts ( courtesy of Pseiko )
+//
+// INVARIANTS:
+//   1. The button for a tab is always "#" + <tab div id> + "TabButton". Looked up by id rather than
+//      by matching ordinals between getElementsByClassName("tab") and ("tabButton"), so inserting a
+//      tab no longer requires touching two lists in lockstep.
+//   2. Index 0 of the "tab" list is #info. The `targetTab <= 0` branch hard-codes that stepping left
+//      off #jobs lands on Settings rather than on #info, which is a quick-bar panel on wide screens
+//      and not a real tab. If #info ever stops being first, fix that branch.
+//   3. The CURRENT tab is detected from the tab DIV (only one has display != none), but a
+//      CANDIDATE's availability is tested on its BUTTON. That asymmetry is deliberate:
+//      requirement-gated tabs gate only the button, never the div. Never put a tab div id into a
+//      Requirement's querySelectors.
 function changeTab(direction){
     const tabs = Array.prototype.slice.call(document.getElementsByClassName("tab"))
-    const tabButtons = Array.prototype.slice.call(document.getElementsByClassName("tabButton"))
 
     let currentTab = 0
     for (const i in tabs) {
@@ -1421,7 +1622,17 @@ function changeTab(direction){
     }
     targetTab = Math.max(0,targetTab)
     if (targetTab > tabs.length - 1) targetTab = 0
-    while (tabButtons[targetTab].style.display.includes("none") || tabButtons[targetTab].classList.contains("hidden")){
+
+    // Bounded. The old `while` clamped targetTab with Math.max(0, ...) on the way down, so a hidden
+    // button at index 0 spun forever; only the early return above kept index 0 out of the loop.
+    for (let step = 0; step < tabs.length; step++) {
+        const button = document.getElementById(tabs[targetTab].id + "TabButton")
+        if (button != null && !button.style.display.includes("none") && !button.classList.contains("hidden"))
+            break
+        if (targetTab <= 0 && direction < 0) {
+            setTab(Tab.SETTINGS)
+            return
+        }
         targetTab = targetTab + direction
         targetTab = Math.max(0, targetTab)
         if (targetTab > tabs.length-1) targetTab = 0
@@ -1480,6 +1691,10 @@ window.addEventListener('keydown', function (e) {
 
         if (e.key == "g") {
             rebirthFive()
+        }
+
+        if (e.key == "r") {
+            rebirthSix()
         }
 
         switch (e.key) {

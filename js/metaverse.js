@@ -280,7 +280,7 @@ function getBoostCooldownString() {
 }
 
 function getTimeIsAFlatCircleXP() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 1
 
     return gameData.requirements["Time is a flat circle"].isCompleted() ? 1e50 : 1
@@ -293,7 +293,11 @@ function getUnspentPerksDarkmatterGainBuff() {
 }
 
 function getHypercubeCap(next = 0) {
-    if (getTotalPerkPoints() >= 1 || (next > 0 && getMetaversePerkPointsGain() > 0))
+    // The uncap used to be derived purely from getTotalPerkPoints() >= 1, so any future layer that
+    // resets perks would silently revert the cap to 1e7 * 10^(3 x rebirthFiveCount) - below
+    // essenceMultCost, and update() truncates hypercubes to it every tick. Latch it instead.
+    if (gameData.hypercube_cap_unlocked || getTotalPerkPoints() >= 1
+        || (next > 0 && getMetaversePerkPointsGain() > 0))
         return Infinity
 
     return 1e7 * Math.pow(10, (gameData.rebirthFiveCount + next) * 3)

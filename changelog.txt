@@ -1,3 +1,12 @@
+version 3.0.0 / 10.08.2026
+* Added the sixth prestige layer: read the amulet to gain Etchings
+* Added the Ledger tab, with inscriptions and sigils
+* Inscriptions make a milestone or a task's max level permanent across every reset
+* Sigils apply a challenge's penalty for a whole run and raise your Etching gain
+* Added Marginal Milestones, a new milestone category bought with Etchings
+* The Milestones tab now stays visible through a Collapse and through the Metaverse
+* IMPORTANT: export your save before downgrading. Loading a 3.0.0 save in an older build irreversibly strips every Layer 6 field (Etchings, inscriptions, sigils) from it, and reinstalling 3.0.0 will not bring them back.
+
 version 2.5.0 / 01.08.2024
 * Improved display on mobile devices
 * Added offline progress (up to 1 hour)

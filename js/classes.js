@@ -40,12 +40,31 @@ class Task {
     }
 
     getMaxBigIntXp() {
-        const maxXp = this.getMaxXp() == Infinity ? BigInt(1e305) : BigInt(Math.floor(this.getMaxXp()));
+        const rawMaxXp = this.getMaxXp()
+        const maxXp = (rawMaxXp == Infinity || isNaN(rawMaxXp)) ? BigInt(1e305) : bigIntSafe(Math.floor(rawMaxXp));
 
         if (maxXp < 1e305)
             return maxXp
 
-        return maxXp * 2n ** (BigInt(this.level) / 120n) * (2n ** (BigInt(this.baseData.heroxp) / 9n))
+        return maxXp * this.getLevelBigIntFactor() * this.getHeroBigIntFactor()
+    }
+
+    // Both factors used to be recomputed on every pass of increaseXp's level loop. The hero factor is
+    // constant per task, and the level factor only steps once per 120 levels - for Omega (heroxp 3120)
+    // that was 2n ** 346n per pass.
+    getLevelBigIntFactor() {
+        const band = Math.floor(this.level / 120)
+        if (this.levelBigIntBand !== band) {
+            this.levelBigIntBand = band
+            this.levelBigIntFactor = 2n ** BigInt(band)
+        }
+        return this.levelBigIntFactor
+    }
+
+    getHeroBigIntFactor() {
+        if (this.heroBigIntFactor === undefined)
+            this.heroBigIntFactor = 2n ** (BigInt(this.baseData.heroxp) / 9n)
+        return this.heroBigIntFactor
     }
 
     getXpLeft() {
@@ -53,7 +72,7 @@ class Task {
     }
 
     getMaxLevelMultiplier() {
-        if (gameData.active_challenge == "dance_with_the_devil" || gameData.active_challenge == "the_darkest_time") {
+        if (isChallengeActive("dance_with_the_devil") || isChallengeActive("the_darkest_time")) {
            return (10 / (this.maxLevel + 1))
         }
         else {
@@ -68,10 +87,10 @@ class Task {
     }
 
     getXpGainBigInt() {
-        let xpGain = BigInt(Math.floor(this.isHero ? getHeroXpGainMultipliers(this) : 1))
+        let xpGain = bigIntSafe(Math.floor(this.isHero ? getHeroXpGainMultipliers(this) : 1), 1n)
 
         this.xpMultipliers.forEach(multiplier => {
-            xpGain *= BigInt(Math.ceil(multiplier()))
+            xpGain *= bigIntSafe(Math.ceil(multiplier()), 1n)
         })
 
         return xpGain
@@ -93,8 +112,10 @@ class Task {
         if (this.isFinished) {
             this.xpBigInt += applySpeedOnBigInt(this.getXpGainBigInt())
 
-            if (this.xpBigInt >= this.getMaxBigIntXp()) {
-                let excess = this.xpBigInt - this.getMaxBigIntXp()
+            let maxBigIntXp = this.getMaxBigIntXp()
+
+            if (this.xpBigInt >= maxBigIntXp) {
+                let excess = this.xpBigInt - maxBigIntXp
 
                 let iterations = 0
                 while (excess >= 0n) {
@@ -107,9 +128,12 @@ class Task {
 
                     this.level += 1
                     this.unlocked = true
-                    excess -= this.getMaxBigIntXp()
+                    // Depends on the level just incremented, so it has to be recomputed here - but
+                    // the two calls that did not depend on it are now hoisted out.
+                    maxBigIntXp = this.getMaxBigIntXp()
+                    excess -= maxBigIntXp
                 }
-                this.xpBigInt = this.getMaxBigIntXp() + excess
+                this.xpBigInt = maxBigIntXp + excess
             }
         } else {
             this.xp += applySpeed(this.getXpGain())
@@ -157,7 +181,13 @@ class Milestone {
         this.baseData = baseData
         this.name = baseData.name
         this.tier = baseData.tier
-        this.expense = baseData.expense
+        // Etching-priced milestones carry expense_log10 and no linear expense. `expense` is set to
+        // NaN rather than left undefined on purpose: format(undefined) THROWS inside the vendored
+        // math.js bundle, while format(NaN) renders the visible string "NaN".
+        this.expense = (baseData.expense != null) ? baseData.expense : NaN
+        this.expense_log10 = (baseData.expense_log10 != null)
+            ? baseData.expense_log10
+            : Math.log10(baseData.expense)
         this.description = baseData.description
         this.unlocked = false
     }
@@ -176,12 +206,12 @@ class Job extends Task {
     }
 
     getIncome() {
-        const income = (this.isHero ? heroIncomeMult
+        const income = (this.isHero ? getHeroIncomeMult()
             * (this.baseData.heroxp > 78 ? 1e6 : 1)
             * (this.baseData.heroxp > 130 ? 1e5 : 1)
             : 1) * applyMultipliers(this.baseData.income, this.incomeMultipliers) * getChallengeBonus("rich_and_the_poor")
 
-        return gameData.active_challenge == "rich_and_the_poor" || gameData.active_challenge == "the_darkest_time" ? Math.pow(income, 0.35) : income
+        return isChallengeActive("rich_and_the_poor") || isChallengeActive("the_darkest_time") ? Math.pow(income, 0.35) : income
     }
 }
 
@@ -263,7 +293,7 @@ class Item {
     getExpense(heroic) {
         if (heroic === undefined)
             heroic = this.isHero
-        return (heroic ? 4 * Math.pow(10, this.baseData.heromult) * heroIncomeMult : 1)
+        return (heroic ? 4 * Math.pow(10, this.baseData.heromult) * getHeroIncomeMult() : 1)
             * applyMultipliers(this.baseData.expense, this.expenseMultipliers)
     }
 }
@@ -421,5 +451,28 @@ class PerkPointRequirement extends Requirement {
 
     getCondition(isHero, requirement) {
         return gameData.perks_points >= requirement.requirement
+    }
+}
+
+class EtchingRequirement extends Requirement {
+    constructor(querySelectors, requirements) {
+        super(querySelectors, requirements)
+        this.type = "etching"
+    }
+
+    // Thresholds are stored in `requirement_log10` / `herequirement_log10`, NOT in `requirement`:
+    // every other subclass's `requirement` is a linear value, so a bare 8 in that field would be
+    // read and rendered as "8 Etchings" instead of 1e8. A missing or non-numeric threshold makes
+    // the requirement unreachable rather than throwing - this runs at 20 Hz inside
+    // renderRequirements(), where a throw is a dead session.
+    getCondition(isHero, requirement) {
+        const threshold = (isHero && requirement.herequirement_log10 != null)
+            ? requirement.herequirement_log10
+            : requirement.requirement_log10
+        if (typeof threshold !== "number") return false
+
+        // Tolerates classes.js loading before data.js declares the field.
+        const owned = (typeof gameData.etchings_log10 === "number") ? gameData.etchings_log10 : LOG_ZERO
+        return owned >= threshold
     }
 }

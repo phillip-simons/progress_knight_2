@@ -86,25 +86,25 @@ function getDarkOrbGeneration() {
 }
 
 function getTaaAndMagicXpGain() {
-    if (gameData.active_challenge == "the_darkest_time") return 1
+    if (isChallengeActive("the_darkest_time")) return 1
 
     return Math.pow(4, gameData.dark_matter_shop.a_deal_with_the_chairman)
 }
 
 function getAGiftFromGodEssenceGain() {
-    if (gameData.active_challenge == "the_darkest_time") return 1
+    if (isChallengeActive("the_darkest_time")) return 1
 
     return Math.pow(2.1, gameData.dark_matter_shop.a_gift_from_god)
 }
 
 function getLifeCoachIncomeGain() {
-    if (gameData.active_challenge == "the_darkest_time") return 1
+    if (isChallengeActive("the_darkest_time")) return 1
 
     return Math.pow(14, gameData.dark_matter_shop.life_coach)
 }
 
 function getGottaBeFastGain() {
-    if (gameData.active_challenge == "the_darkest_time") return 1
+    if (isChallengeActive("the_darkest_time")) return 1
 
     return 1 + 0.2 * gameData.dark_matter_shop.gotta_be_fast
 }
@@ -176,7 +176,7 @@ function buyDarkMatterSkill(skill_name, cost, number) {
 }
 
 function getDarkMatterSkillIncome() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 0
 
     if (gameData.perks.positive_dark_mater_skills == 1)
@@ -194,7 +194,7 @@ function getDarkMatterSkillIncome() {
 }
 
 function getDarkMatterSkillTimeWarping() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 1
 
     let timewarping = 1
@@ -208,7 +208,7 @@ function getDarkMatterSkillTimeWarping() {
 }
 
 function getDarkMatterSkillXP() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 1
 
     let xp = 1
@@ -221,7 +221,7 @@ function getDarkMatterSkillXP() {
 }
 
 function getDarkMatterSkillEssence() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 0.25
 
     let ess = 1
@@ -239,7 +239,7 @@ function getDarkMatterSkillEssence() {
 }
 
 function getDarkMatterSkillEvil() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 0.25
 
     let evil = 1
@@ -251,7 +251,7 @@ function getDarkMatterSkillEvil() {
     return evil
 }
 function getDarkMatterSkillDarkMater() {
-    if (gameData.active_challenge == "the_darkest_time")
+    if (isChallengeActive("the_darkest_time"))
         return 1
 
     return (gameData.perks.positive_dark_mater_skills == 0 && [2, 3].includes(gameData.dark_matter_shop.multiverse_explorer)) ? 0.01 : 1
