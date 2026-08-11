@@ -224,7 +224,7 @@ function getHeroIncomeMult() { return heroIncomeMult }
 // Deliberately NOT here: "Marginal Milestones" and the 15 Marginal keys (the track is SUPPOSED to
 // revoke - that is the layer's cost), "Etchings info" (hand-un-latched in renderSideBar), and
 // "Rebirth button 7" / "Rebirth note 10" / "key7", which should re-lock like every other layer's.
-const permanentUnlocks = ["Quick task display", "Evil perks", "Rebirth tab", "Milestones", "Dark Matter", "Dark Matter Skills", "Dark Matter Skills2", "Metaverse", "Metaverse Perks", "Metaverse Perks Button", "Congratulations", "Sigils", "Ledger", "Authorship", "Axioms info"]
+const permanentUnlocks = ["Quick task display", "Evil perks", "Rebirth tab", "Milestones", "Dark Matter", "Dark Matter Skills", "Dark Matter Skills2", "Metaverse", "Metaverse Perks", "Metaverse Perks Button", "Sigils", "Ledger", "Authorship", "Axioms info"]
 const metaverseUnlocks = ["Reduce Boost Cooldown", "Increase Boost Duration", "Increase Hypercube Gain", "Gain evil at new transcension",
     "Essence gain multiplier", "Challenges are not reset", "Dark Matter gain multiplier"]
 
@@ -689,7 +689,6 @@ const requirementsBaseData = {
     // Evil perks
     "Evil perk essence": new EssenceRequirement(["#evilperk5"], [{ requirement: 150000000 }]),
 
-    "Congratulations": new EssenceRequirement(["#Congratulations"], [{ requirement: 1e300 }]),
 }
 
 const jobCategories = {

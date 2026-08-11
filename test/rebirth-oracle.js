@@ -878,7 +878,7 @@ function checkLayerSixPostState(seed) {
     }
     for (const path in world.exportedDarkMatterSkillClears) before.skills[path] = readGameDataPath(g, path)
     for (const word of ['One', 'Two', 'Three', 'Four', 'Five', 'Six']) before.counts[word] = g['rebirth' + word + 'Count']
-    for (const key of ['Metaverse', 'Metaverse Perks', 'Congratulations']) before.latches[key] = g.requirements[key].completed
+    for (const key of ['Metaverse', 'Metaverse Perks', 'Metaverse Perks Button']) before.latches[key] = g.requirements[key].completed
 
     if (!world.doRebirth(6)) return ['doRebirth(6) returned false with the gate open and a positive gain']
 
